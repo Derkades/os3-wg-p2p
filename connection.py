@@ -22,7 +22,7 @@ class ConnectionRequest:
 
 @dataclass
 class ConnectionResponse:
-    _format = '!32s128sH128S'
+    _format = '!32s128sH128s'
     pubkey: bytes # raw wireguard pubkey of other peer (32 bytes)
     addr: bytes # IPv4 or IPv6 address of other peer (128 bytes) TODO: more efficient
     port: int # port number of other peer (2 bytes)
