@@ -41,6 +41,9 @@ PersistentKeepalive = 25
     subprocess.check_call(['sudo', 'ip', 'address', 'add', addr + '/32', 'dev', if_name])
     print('set mtu')
     subprocess.check_call(['sudo', 'ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', if_name])
+    print('add route to peer')
+    subprocess.check_call(['sudo', 'ip', 'route', 'add', 'peer_addr', 'dev', if_name])
+
 
 def main():
     # TODO also exchange VPN address
@@ -50,7 +53,7 @@ def main():
     do_relay = bool(int(input('Use relay, 1 or 0?')))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode(), config['address'].encode())
+    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode(), config['address'].split('/')[0].encode())
     sock.sendto(MAGIC_HEADER + req.pack(), (config['server_host'], config['server_port']))
     print('Sent data to relay server, waiting for response')
     data = sock.recv(1024)
