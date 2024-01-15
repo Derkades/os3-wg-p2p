@@ -1,34 +1,105 @@
 import socket
+from connection import MAGIC_HEADER, ConnectionRequest, ConnectionResponse
+from dataclasses import dataclass
 
 
-SINGLE_PEER: dict[str, tuple[str, int]] = {}
-PEER_PAIRS: dict[tuple[str, int], tuple[str, int]] = {}
+@dataclass
+class PendingConnection():
+    req: ConnectionRequest
+    addr: tuple[str, int]
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(('0.0.0.0', 3000))
 
-while True:
-    data, addr = sock.recvfrom(1420)
-    if data.startswith(b'magic'):
-        uuid = data[5:].decode()
-        if addr in PEER_PAIRS:
-            print('already registered as pair')
-            continue
+class Connection:
+    relay: bool
+    peer1_pubkey: bytes
+    peer1_addr: tuple[str, int]
+    peer2_pubkey: bytes
+    peer2_addr: tuple[str, int]
 
-        if uuid in SINGLE_PEER:
-            other_peer = SINGLE_PEER[uuid]
-            print('uuid already exists, pair with peer', other_peer)
-            PEER_PAIRS[addr] = other_peer
-            PEER_PAIRS[other_peer] = addr
-        else:
-            print('register uuid (first)    :', uuid)
-            SINGLE_PEER[uuid] = addr
+    def __init__(self, pending: PendingConnection, req: ConnectionRequest, addr: tuple[str, int]):
+        assert req.relay == pending.req.relay
+        self.relay = req.relay
+        self.peer1_pubkey = pending.req.pubkey
+        self.peer1_addr = pending.addr
+        self.peer2_pubkey = req.pubkey
+        self.peer2_addr = addr
+
+
+# Pending connections by UUID
+PENDING_CONNECTIONS: dict[str, PendingConnection] = {}
+# Connections by address
+CONNECTIONS: dict[tuple[str, int], Connection] = {}
+
+def destroy_connection(connection: Connection):
+    del CONNECTIONS[connection.peer1_addr]
+    del CONNECTIONS[connection.peer2_addr]
+
+
+def handle_connection_request(data, addr, sock: socket.socket):
+    if addr in CONNECTIONS:
+        print('Already has connection, destroying previous connection')
+        destroy_connection(CONNECTIONS[addr])
+
+    req = ConnectionRequest.unpack(data)
+
+    if req.uuid in PENDING_CONNECTIONS:
+        pending = PENDING_CONNECTIONS[req.uuid]
+        del PENDING_CONNECTIONS[req.uuid]
+        print('Second request, register connection:', pending)
+
+        conn = Connection(pending, req, addr)
+
+        CONNECTIONS[conn.peer1_addr] = conn
+        CONNECTIONS[conn.peer2_addr] = conn
+
+        # send peer2 info to peer1
+        resp = ConnectionResponse(conn.peer2_pubkey, conn.peer2_addr[0].encode(), conn.peer2_addr[1])
+        sock.sendto(resp.pack(), conn.peer1_addr)
+
+        # send peer1 info to peer2
+        resp = ConnectionResponse(conn.peer1_pubkey, conn.peer1_addr[0].encode(), conn.peer1_addr[1])
+        sock.sendto(resp.pack(), conn.peer2_addr)
     else:
-        print(f"received message: {data} from {addr}")
-        if addr not in PEER_PAIRS:
-            print('ignoring message without peer pair')
+        print('First request, register pending')
+        PENDING_CONNECTIONS[req.uuid] = PendingConnection(req, addr)
+
+
+def handle_other(data, addr, sock: socket.socket):
+    if addr not in CONNECTIONS:
+        print('Received message from unknown address:', addr)
+        return
+
+    conn = CONNECTIONS[addr]
+
+    if not conn.relay:
+        print('Received unknown message, but relaying is disabled')
+        return
+
+    print('Relaying message:', data)
+    if addr == conn.peer1_addr:
+        sock.sendto(data, conn.peer2_addr)
+    else:
+        assert addr == conn.peer2_addr
+        sock.sendto(data, conn.peer1_addr)
+
+
+def main():
+    bind_addr = ('0.0.0.0', 3000)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(bind_addr)
+
+    print('listening on:', bind_addr)
+
+    while True:
+        data, addr = sock.recvfrom(1420)
+
+        if data.startswith(MAGIC_HEADER):
+            handle_connection_request(data[len(MAGIC_HEADER):], addr, sock)
             continue
 
-        other_peer = PEER_PAIRS[addr]
-        print(f'forwarding message from {addr} to {other_peer}')
-        sock.sendto(data, other_peer)
+        handle_other(data, addr, sock)
+
+
+if __name__ == '__main__':
+    main()
