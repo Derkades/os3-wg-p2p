@@ -27,7 +27,7 @@ PrivateKey = {privkey}
 Endpoint = {peer_endpoint}
 PublicKey = {peer_pubkey}
 AllowedIPs = {peer_addr}
-PersistentKeepalive = 1
+PersistentKeepalive = 25
 '''.encode()
         temp_config.write(wg_config)
     print(wg_config.decode())
@@ -41,6 +41,7 @@ PersistentKeepalive = 1
     subprocess.check_call(['sudo', 'ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', if_name])
 
 def main():
+    # TODO also exchange VPN address
     config = read_config()
 
     uuid = input('Enter unique id:')
@@ -53,7 +54,7 @@ def main():
     data = sock.recv(1024)
     resp = ConnectionResponse.unpack(data)
     print('Got response:', resp)
-    peer_pubkey = b64encode(resp.pubkey)
+    peer_pubkey = b64encode(resp.pubkey).decode()
 
     # remember source port
     source_port = sock.getsockname()[1]

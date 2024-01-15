@@ -75,12 +75,9 @@ def handle_other(data, addr, sock: socket.socket):
         print('Received unknown message, but relaying is disabled')
         return
 
-    print('Relaying message:', data)
-    if addr == conn.peer1_addr:
-        sock.sendto(data, conn.peer2_addr)
-    else:
-        assert addr == conn.peer2_addr
-        sock.sendto(data, conn.peer1_addr)
+    dest_addr = conn.peer2_addr if addr == conn.peer1_addr else conn.peer1_addr
+    print(f'Relaying message: {len(data)} bytes {addr} -> {dest_addr}')
+    sock.sendto(data, dest_addr)
 
 
 def main():
