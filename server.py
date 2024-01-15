@@ -19,7 +19,9 @@ class Connection:
     relay: bool
     peer1_pubkey: bytes
     peer1_addr: tuple[str, int]
+    peer1_vpn_addr: bytes
     peer2_pubkey: bytes
+    peer2_vpn_addr: bytes
     peer2_addr: tuple[str, int]
 
     def __init__(self, pending: PendingConnection, req: ConnectionRequest, addr: tuple[str, int]):
@@ -27,7 +29,9 @@ class Connection:
         self.relay = req.relay
         self.peer1_pubkey = pending.req.pubkey
         self.peer1_addr = pending.addr
+        self.peer1_vpn_addr = pending.req.vpn_addr
         self.peer2_pubkey = req.pubkey
+        self.peer2_vpn_addr = req.vpn_addr
         self.peer2_addr = addr
 
 
@@ -59,11 +63,11 @@ def handle_connection_request(data, addr, sock: socket.socket):
         CONNECTIONS[conn.peer2_addr] = conn
 
         # send peer2 info to peer1
-        resp = ConnectionResponse(conn.peer2_pubkey, conn.peer2_addr[0].encode(), conn.peer2_addr[1])
+        resp = ConnectionResponse(conn.peer2_pubkey, conn.peer2_addr[0].encode(), conn.peer2_addr[1], conn.peer2_vpn_addr)
         sock.sendto(resp.pack(), conn.peer1_addr)
 
         # send peer1 info to peer2
-        resp = ConnectionResponse(conn.peer1_pubkey, conn.peer1_addr[0].encode(), conn.peer1_addr[1])
+        resp = ConnectionResponse(conn.peer1_pubkey, conn.peer1_addr[0].encode(), conn.peer1_addr[1], conn.peer2_vpn_addr)
         sock.sendto(resp.pack(), conn.peer2_addr)
     else:
         print('First request, register pending')
