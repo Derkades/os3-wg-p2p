@@ -4,7 +4,6 @@ import socket
 import subprocess
 import tempfile
 import time
-from base64 import b64decode, b64encode
 
 from connection import MAGIC_HEADER, ConnectionRequest, ConnectionResponse
 
@@ -51,14 +50,12 @@ def main():
     do_relay = bool(int(input('Use relay, 1 or 0?')))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode(), config['address'].split('/')[0].encode())
+    req = ConnectionRequest(do_relay, config['pubkey'], uuid, config['address'].split('/')[0])
     sock.sendto(MAGIC_HEADER + req.pack(), (config['server_host'], config['server_port']))
     print('Sent data to relay server, waiting for response')
     data = sock.recv(1024)
     resp = ConnectionResponse.unpack(data)
     print('Got response:', resp)
-    peer_pubkey = b64encode(resp.pubkey).decode()
-    peer_address = resp.vpn_addr.rstrip(b'\x00').decode()
 
     # remember source port
     source_port = sock.getsockname()[1]
@@ -71,8 +68,8 @@ def main():
         peer_port = config['server_port']
     else:
         print('Using UDP hole punch')
-        peer_ip = resp.addr.rstrip(b'\x00').decode()
-        peer_port = resp.port
+        peer_ip = resp.peer_host
+        peer_port = resp.peer_port
 
         # Datagram to create entry in NAT table
         sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -87,8 +84,8 @@ def main():
                         config['privkey'],
                         source_port,
                         config['address'],
-                        peer_pubkey,
-                        peer_address,
+                        resp.peer_pubkey,
+                        resp.peer_vpn_addr,
                         f'{peer_ip}:{peer_port}')
 
 

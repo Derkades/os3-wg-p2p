@@ -10,68 +10,52 @@ def read_config():
         return json.load(config_file)
 
 @dataclass
-class PendingConnection():
-    req: ConnectionRequest
+class ConnectionPeer:
     addr: tuple[str, int]
+    req: ConnectionRequest
 
 
+@dataclass
 class Connection:
-    relay: bool
-    peer1_pubkey: bytes
-    peer1_addr: tuple[str, int]
-    peer1_vpn_addr: bytes
-    peer2_pubkey: bytes
-    peer2_vpn_addr: bytes
-    peer2_addr: tuple[str, int]
-
-    def __init__(self, pending: PendingConnection, req: ConnectionRequest, addr: tuple[str, int]):
-        assert req.relay == pending.req.relay
-        self.relay = req.relay
-        self.peer1_pubkey = pending.req.pubkey
-        self.peer1_addr = pending.addr
-        self.peer1_vpn_addr = pending.req.vpn_addr
-        self.peer2_pubkey = req.pubkey
-        self.peer2_vpn_addr = req.vpn_addr
-        self.peer2_addr = addr
+    a: ConnectionPeer
+    b: ConnectionPeer
 
 
 # Pending connections by UUID
-PENDING_CONNECTIONS: dict[str, PendingConnection] = {}
+PENDING_CONNECTIONS: dict[str, ConnectionPeer] = {}
 # Connections by address
 CONNECTIONS: dict[tuple[str, int], Connection] = {}
-
-def destroy_connection(connection: Connection):
-    del CONNECTIONS[connection.peer1_addr]
-    del CONNECTIONS[connection.peer2_addr]
 
 
 def handle_connection_request(data, addr, sock: socket.socket):
     if addr in CONNECTIONS:
         print('Already has connection, destroying previous connection')
-        destroy_connection(CONNECTIONS[addr])
+        conn = CONNECTIONS[addr]
+        del CONNECTIONS[conn.a.addr]
+        del CONNECTIONS[conn.b.addr]
 
     req = ConnectionRequest.unpack(data)
 
     if req.uuid in PENDING_CONNECTIONS:
-        pending = PENDING_CONNECTIONS[req.uuid]
+        print('Second request, register connection')
+
+        conn = Connection(PENDING_CONNECTIONS[req.uuid], req)
+
         del PENDING_CONNECTIONS[req.uuid]
-        print('Second request, register connection:', pending)
+        if req.relay:
+            CONNECTIONS[conn.a.addr] = conn
+            CONNECTIONS[conn.b.addr] = conn
 
-        conn = Connection(pending, req, addr)
+        # send A info to B
+        resp = ConnectionResponse(conn.a.req.pubkey, conn.a.addr[0], conn.a.addr[1], conn.a.req.vpn_addr)
+        sock.sendto(resp.pack(), conn.b.addr)
 
-        CONNECTIONS[conn.peer1_addr] = conn
-        CONNECTIONS[conn.peer2_addr] = conn
-
-        # send peer2 info to peer1
-        resp = ConnectionResponse(conn.peer2_pubkey, conn.peer2_addr[0].encode(), conn.peer2_addr[1], conn.peer2_vpn_addr)
-        sock.sendto(resp.pack(), conn.peer1_addr)
-
-        # send peer1 info to peer2
-        resp = ConnectionResponse(conn.peer1_pubkey, conn.peer1_addr[0].encode(), conn.peer1_addr[1], conn.peer1_vpn_addr)
-        sock.sendto(resp.pack(), conn.peer2_addr)
+        # send B info to A
+        resp = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr)
+        sock.sendto(resp.pack(), conn.a.addr)
     else:
         print('First request, register pending')
-        PENDING_CONNECTIONS[req.uuid] = PendingConnection(req, addr)
+        PENDING_CONNECTIONS[req.uuid] = req
 
 
 def handle_other(data, addr, sock: socket.socket, verbose: bool):
@@ -81,11 +65,7 @@ def handle_other(data, addr, sock: socket.socket, verbose: bool):
 
     conn = CONNECTIONS[addr]
 
-    if not conn.relay:
-        print('Received unknown message, but relaying is disabled')
-        return
-
-    dest_addr = conn.peer2_addr if addr == conn.peer1_addr else conn.peer1_addr
+    dest_addr = conn.b.addr if addr == conn.a.addr else conn.a.addr
     if verbose:
         print(f'Relaying message: {len(data)} bytes {addr} -> {dest_addr}')
     sock.sendto(data, dest_addr)
@@ -100,7 +80,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(bind_addr)
 
-    print('listening on:', bind_addr)
+    print('Listening on:', bind_addr)
 
     while True:
         data, addr = sock.recvfrom(2048)
