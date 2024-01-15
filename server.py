@@ -67,7 +67,7 @@ def handle_connection_request(data, addr, sock: socket.socket):
         sock.sendto(resp.pack(), conn.peer1_addr)
 
         # send peer1 info to peer2
-        resp = ConnectionResponse(conn.peer1_pubkey, conn.peer1_addr[0].encode(), conn.peer1_addr[1], conn.peer2_vpn_addr)
+        resp = ConnectionResponse(conn.peer1_pubkey, conn.peer1_addr[0].encode(), conn.peer1_addr[1], conn.peer1_vpn_addr)
         sock.sendto(resp.pack(), conn.peer2_addr)
     else:
         print('First request, register pending')
