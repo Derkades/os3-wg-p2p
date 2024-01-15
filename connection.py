@@ -6,7 +6,7 @@ MAGIC_HEADER = b'awesome peer to peer'
 
 @dataclass
 class ConnectionRequest:
-    _format = '!?32s128s'
+    _format = '!?32s128s128s'
     relay: bool
     pubkey: bytes # raw wireguard pubkey (32 bytes)
     uuid: bytes # unique id in text format (128 bytes) TODO: more efficient

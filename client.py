@@ -50,8 +50,8 @@ def main():
     do_relay = bool(int(input('Use relay, 1 or 0?')))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode(), config['address'])
-    sock.sendto(MAGIC_HEADER + req.pack(), (config['relay_host'], config['relay_port']))
+    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode(), config['address'].encode())
+    sock.sendto(MAGIC_HEADER + req.pack(), (config['server_host'], config['server_port']))
     print('Sent data to relay server, waiting for response')
     data = sock.recv(1024)
     resp = ConnectionResponse.unpack(data)
@@ -66,8 +66,8 @@ def main():
     if do_relay:
         print('Using relay server')
         # Relay server is peer
-        peer_ip = config['relay_host']
-        peer_port = config['relay_port']
+        peer_ip = config['server_host']
+        peer_port = config['server_port']
     else:
         print('Using UDP hole punch')
         peer_ip = resp.addr.rstrip(b'\x00').decode()
