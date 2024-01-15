@@ -38,7 +38,7 @@ PersistentKeepalive = 25
     print('setconf')
     subprocess.check_call(['sudo', 'wg', 'setconf', if_name, temp_path])
     print('add address')
-    subprocess.check_call(['sudo', 'ip', 'address', 'add', addr + '/32', 'dev', if_name])
+    subprocess.check_call(['sudo', 'ip', 'address', 'add', addr, 'dev', if_name])
     print('set mtu')
     subprocess.check_call(['sudo', 'ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', if_name])
     print('add route to peer')
