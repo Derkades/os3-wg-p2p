@@ -66,7 +66,7 @@ def handle_connection_request(data, addr, sock: socket.socket):
 
 def handle_other(data, addr, sock: socket.socket):
     if addr not in CONNECTIONS:
-        print('Received message from unknown address:', addr)
+        print('Ignoring message from unknown address:', addr)
         return
 
     conn = CONNECTIONS[addr]

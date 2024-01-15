@@ -31,6 +31,8 @@ PersistentKeepalive = 25
 '''.encode()
         temp_config.write(wg_config)
     print(wg_config.decode())
+    print('delete old interface')
+    subprocess.call(['sudo', 'ip', 'link', 'del', if_name])
     print('create interface')
     subprocess.check_call(['sudo', 'ip', 'link', 'add', if_name, 'type', 'wireguard'])
     print('setconf')
