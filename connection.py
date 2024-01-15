@@ -31,7 +31,7 @@ class ConnectionResponse:
     peer_vpn_addr: bytes # address inside the VPN (128 bytes) # TODO: more efficient
 
     def pack(self) -> bytes:
-        return struct.pack(self._format, b64decode(self.peer_pubkey), self.peer_addr.encode(), self.peer_port, self.peer_vpn_addr.encode())
+        return struct.pack(self._format, b64decode(self.peer_pubkey), self.peer_host.encode(), self.peer_port, self.peer_vpn_addr.encode())
 
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionResponse':
