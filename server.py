@@ -74,7 +74,7 @@ def handle_connection_request(data, addr, sock: socket.socket):
         PENDING_CONNECTIONS[req.uuid] = PendingConnection(req, addr)
 
 
-def handle_other(data, addr, sock: socket.socket):
+def handle_other(data, addr, sock: socket.socket, verbose: bool):
     if addr not in CONNECTIONS:
         print('Ignoring message from unknown address:', addr)
         return
@@ -86,12 +86,14 @@ def handle_other(data, addr, sock: socket.socket):
         return
 
     dest_addr = conn.peer2_addr if addr == conn.peer1_addr else conn.peer1_addr
-    print(f'Relaying message: {len(data)} bytes {addr} -> {dest_addr}')
+    if verbose:
+        print(f'Relaying message: {len(data)} bytes {addr} -> {dest_addr}')
     sock.sendto(data, dest_addr)
 
 
 def main():
     config = read_config()
+    verbose = config['verbose']
 
     bind_addr = ('0.0.0.0', config['server_port'])
 
