@@ -103,7 +103,7 @@ def main():
     print('listening on:', bind_addr)
 
     while True:
-        data, addr = sock.recvfrom(1420)
+        data, addr = sock.recvfrom(2048)
 
         if data.startswith(MAGIC_HEADER):
             handle_connection_request(data[len(MAGIC_HEADER):], addr, sock)
