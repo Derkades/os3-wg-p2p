@@ -9,6 +9,7 @@ def read_config():
     with open('server_config.json') as config_file:
         return json.load(config_file)
 
+
 @dataclass
 class ConnectionPeer:
     addr: tuple[str, int]
