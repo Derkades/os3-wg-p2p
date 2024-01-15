@@ -1,5 +1,5 @@
 import socket
-import stun
+# import stun
 import time
 import subprocess
 import tempfile
@@ -68,17 +68,18 @@ def main():
         peer_ip = config['relay_host']
         peer_port = config['relay_port']
     else:
-        print('Using UDP hole punch. Using STUN server to determine external address and port...')
+        # print('Using UDP hole punch. Using STUN server to determine external address and port...')
+        print('Using UDP hole punch')
         peer_ip = resp.addr.rstrip(b'\x00').decode()
         peer_port = resp.port
 
-        nat_type, external_ip, external_port = \
-            stun.get_ip_info(source_port=source_port,
-                             stun_host='77.72.169.210')
+        # nat_type, external_ip, external_port = \
+        #     stun.get_ip_info(source_port=source_port,
+        #                      stun_host='77.72.169.210')
 
-        print('NAT type:', nat_type)
-        print('External IP:', external_ip)
-        print('External port:', external_port)
+        # print('NAT type:', nat_type)
+        # print('External IP:', external_ip)
+        # print('External port:', external_port)
 
         # Datagram to create entry in NAT table
         sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
