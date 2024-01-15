@@ -39,7 +39,7 @@ def handle_connection_request(data, addr, sock: socket.socket):
     if req.uuid in PENDING_CONNECTIONS:
         print('Second request, register connection')
 
-        conn = Connection(PENDING_CONNECTIONS[req.uuid], req)
+        conn = Connection(PENDING_CONNECTIONS[req.uuid], ConnectionPeer(addr, req))
 
         del PENDING_CONNECTIONS[req.uuid]
         if req.relay:
@@ -55,7 +55,7 @@ def handle_connection_request(data, addr, sock: socket.socket):
         sock.sendto(resp.pack(), conn.a.addr)
     else:
         print('First request, register pending')
-        PENDING_CONNECTIONS[req.uuid] = req
+        PENDING_CONNECTIONS[req.uuid] = ConnectionPeer(addr, req)
 
 
 def handle_other(data, addr, sock: socket.socket, verbose: bool):
