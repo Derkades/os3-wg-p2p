@@ -109,7 +109,7 @@ def main():
             handle_connection_request(data[len(MAGIC_HEADER):], addr, sock)
             continue
 
-        handle_other(data, addr, sock)
+        handle_other(data, addr, sock, verbose)
 
 
 if __name__ == '__main__':
