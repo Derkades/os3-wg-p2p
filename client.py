@@ -1,16 +1,16 @@
+import json
+import os
 import socket
-# import stun
-import time
 import subprocess
 import tempfile
-import os
-import json
+import time
 from base64 import b64decode, b64encode
-from connection import ConnectionRequest, ConnectionResponse, MAGIC_HEADER
+
+from connection import MAGIC_HEADER, ConnectionRequest, ConnectionResponse
 
 
 def read_config():
-    with open('config.json') as config_file:
+    with open('client_config.json') as config_file:
         return json.load(config_file)
 
 
@@ -26,7 +26,7 @@ PrivateKey = {privkey}
 [Peer]
 Endpoint = {peer_endpoint}
 PublicKey = {peer_pubkey}
-AllowedIPs = {peer_addr}
+AllowedIPs = {peer_addr}/32
 PersistentKeepalive = 25
 '''.encode()
         temp_config.write(wg_config)
@@ -38,7 +38,7 @@ PersistentKeepalive = 25
     print('setconf')
     subprocess.check_call(['sudo', 'wg', 'setconf', if_name, temp_path])
     print('add address')
-    subprocess.check_call(['sudo', 'ip', 'address', 'add', addr, 'dev', if_name])
+    subprocess.check_call(['sudo', 'ip', 'address', 'add', addr + '/32', 'dev', if_name])
     print('set mtu')
     subprocess.check_call(['sudo', 'ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', if_name])
 
@@ -50,13 +50,14 @@ def main():
     do_relay = bool(int(input('Use relay, 1 or 0?')))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode())
+    req = ConnectionRequest(do_relay, b64decode(config['pubkey']), uuid.encode(), config['address'])
     sock.sendto(MAGIC_HEADER + req.pack(), (config['relay_host'], config['relay_port']))
     print('Sent data to relay server, waiting for response')
     data = sock.recv(1024)
     resp = ConnectionResponse.unpack(data)
     print('Got response:', resp)
     peer_pubkey = b64encode(resp.pubkey).decode()
+    peer_address = resp.vpn_addr.rstrip(b'\x00').decode()
 
     # remember source port
     source_port = sock.getsockname()[1]
@@ -68,18 +69,9 @@ def main():
         peer_ip = config['relay_host']
         peer_port = config['relay_port']
     else:
-        # print('Using UDP hole punch. Using STUN server to determine external address and port...')
         print('Using UDP hole punch')
         peer_ip = resp.addr.rstrip(b'\x00').decode()
         peer_port = resp.port
-
-        # nat_type, external_ip, external_port = \
-        #     stun.get_ip_info(source_port=source_port,
-        #                      stun_host='77.72.169.210')
-
-        # print('NAT type:', nat_type)
-        # print('External IP:', external_ip)
-        # print('External port:', external_port)
 
         # Datagram to create entry in NAT table
         sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -95,7 +87,7 @@ def main():
                         source_port,
                         config['address'],
                         peer_pubkey,
-                        config['peer_address'],
+                        peer_address,
                         f'{peer_ip}:{peer_port}')
 
 

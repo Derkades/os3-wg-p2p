@@ -1,7 +1,13 @@
+import json
 import socket
-from connection import MAGIC_HEADER, ConnectionRequest, ConnectionResponse
 from dataclasses import dataclass
 
+from connection import MAGIC_HEADER, ConnectionRequest, ConnectionResponse
+
+
+def read_config():
+    with open('server_config.json') as config_file:
+        return json.load(config_file)
 
 @dataclass
 class PendingConnection():
@@ -81,7 +87,9 @@ def handle_other(data, addr, sock: socket.socket):
 
 
 def main():
-    bind_addr = ('0.0.0.0', 3000)
+    config = read_config()
+
+    bind_addr = ('0.0.0.0', config['server_port'])
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(bind_addr)

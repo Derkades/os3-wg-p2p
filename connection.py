@@ -10,9 +10,10 @@ class ConnectionRequest:
     relay: bool
     pubkey: bytes # raw wireguard pubkey (32 bytes)
     uuid: bytes # unique id in text format (128 bytes) TODO: more efficient
+    vpn_addr: bytes # address inside the VPN (128 bytes) TODO: more efficient
 
     def pack(self) -> bytes:
-        return struct.pack(self._format, self.relay, self.pubkey, self.uuid)
+        return struct.pack(self._format, self.relay, self.pubkey, self.uuid, self.vpn_addr)
 
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionRequest':
@@ -21,13 +22,14 @@ class ConnectionRequest:
 
 @dataclass
 class ConnectionResponse:
-    _format = '!32s128sH'
+    _format = '!32s128sH128S'
     pubkey: bytes # raw wireguard pubkey of other peer (32 bytes)
     addr: bytes # IPv4 or IPv6 address of other peer (128 bytes) TODO: more efficient
     port: int # port number of other peer (2 bytes)
+    vpn_addr: bytes # address inside the VPN (128 bytes) # TODO: more efficient
 
     def pack(self) -> bytes:
-        return struct.pack(self._format, self.pubkey, self.addr, self.port)
+        return struct.pack(self._format, self.pubkey, self.addr, self.port, self.vpn_addr)
 
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionResponse':
