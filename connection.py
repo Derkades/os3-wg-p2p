@@ -36,4 +36,4 @@ class ConnectionResponse:
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionResponse':
         pubkey, addr, port, vpn_addr = struct.unpack(cls._format, inp)
-        return cls(b64encode(pubkey).decode(), addr.decode(), port, vpn_addr.rstrip(b'\x00').decode())
+        return cls(b64encode(pubkey).decode(), addr.rstrip(b'\x00').decode(), port, vpn_addr.rstrip(b'\x00').decode())
