@@ -8,7 +8,7 @@ MAGIC_HEADER = b'awesome peer to peer'
 
 
 @dataclass
-class ConnectionRequest:
+class ConnectionRequest:  # 68 bytes
     _format = '!?32s16s4s16s'
     relay: bool
     pubkey: str # wireguard pubkey (32 bytes)
@@ -31,7 +31,7 @@ class ConnectionRequest:
 
 
 @dataclass
-class ConnectionResponse:
+class ConnectionResponse:  # 70 bytes
     _format = '!32s16sH4s16s'
     peer_pubkey: str # wireguard pubkey of other peer (32 bytes)
     peer_host: str # IPv4 or IPv6 address of other peer (16 bytes)
