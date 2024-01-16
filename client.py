@@ -44,12 +44,10 @@ PersistentKeepalive = 25
 def main():
     # TODO also exchange VPN address
     config = read_config()
-
-    uuid = input('Enter unique id:')
     do_relay = bool(int(input('Use relay, 1 or 0?')))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    req = ConnectionRequest(do_relay, config['pubkey'], uuid, config['address4'], config['address6'])
+    req = ConnectionRequest(do_relay, config['pubkey'], config['uuid'], config['address4'], config['address6'])
     sock.sendto(MAGIC_HEADER + req.pack(), (config['server_host'], config['server_port']))
     print('Sent data to relay server, waiting for response')
     data = sock.recv(1024)

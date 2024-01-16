@@ -2,16 +2,17 @@ import struct
 from base64 import b64decode, b64encode
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
+from uuid import UUID
 
 MAGIC_HEADER = b'awesome peer to peer'
 
 
 @dataclass
 class ConnectionRequest:
-    _format = '!?32s128s4s16s'
+    _format = '!?32s16s4s16s'
     relay: bool
     pubkey: str # wireguard pubkey (32 bytes)
-    uuid: str # unique id in text format (128 bytes) TODO: should be packed efficiently
+    uuid: str # uuid (16 bytes, big endian format)
     vpn_addr4: str # IPv4 address inside the VPN (4 bytes)
     vpn_addr6: str # IPV6 address inside the VPN (16 bytes)
 
@@ -19,14 +20,14 @@ class ConnectionRequest:
         return struct.pack(self._format,
                            self.relay,
                            b64decode(self.pubkey),
-                           self.uuid.encode(),
+                           UUID(self.uuid).bytes,
                            IPv4Address(self.vpn_addr4).packed,
                            IPv6Address(self.vpn_addr6).packed)
 
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionRequest':
         relay, pubkey, uuid, addr4, addr6 = struct.unpack(cls._format, inp)
-        return cls(relay, b64encode(pubkey).decode(), uuid.decode(), str(IPv4Address(addr4)), str(IPv6Address(addr6)))
+        return cls(relay, b64encode(pubkey).decode(), str(UUID(bytes=uuid)), str(IPv4Address(addr4)), str(IPv6Address(addr6)))
 
 
 @dataclass
