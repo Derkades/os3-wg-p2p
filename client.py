@@ -42,11 +42,11 @@ PersistentKeepalive = 25
     print('delete old interface')
     subprocess.call(['sudo', 'ip', 'link', 'del', if_name])
     print('create and configure new interface')
-    # subprocess.check_call(['sudo', 'ip', 'link', 'add', if_name, 'type', 'wireguard'])
-    # subprocess.check_call(['sudo', 'wg', 'setconf', if_name, temp_path])
-    # subprocess.check_call(['sudo', 'ip', 'address', 'add', addr4 + '/24', 'dev', if_name])
-    # subprocess.check_call(['sudo', 'ip', 'address', 'add', addr6 + '/64', 'dev', if_name])
-    # subprocess.check_call(['sudo', 'ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', if_name])
+    subprocess.check_call(['sudo', 'ip', 'link', 'add', if_name, 'type', 'wireguard'])
+    subprocess.check_call(['sudo', 'wg', 'setconf', if_name, temp_path])
+    subprocess.check_call(['sudo', 'ip', 'address', 'add', addr4 + '/24', 'dev', if_name])
+    subprocess.check_call(['sudo', 'ip', 'address', 'add', addr6 + '/64', 'dev', if_name])
+    subprocess.check_call(['sudo', 'ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', if_name])
 
 
 def main():
