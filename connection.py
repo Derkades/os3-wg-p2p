@@ -1,39 +1,52 @@
 import struct
 from base64 import b64decode, b64encode
 from dataclasses import dataclass
+from ipaddress import IPv4Address, IPv6Address, ip_address
 
 MAGIC_HEADER = b'awesome peer to peer'
 
 
 @dataclass
 class ConnectionRequest:
-    _format = '!?32s128s128s'
+    _format = '!?32s128s4s16s'
     relay: bool
     pubkey: str # wireguard pubkey (32 bytes)
-    uuid: str # unique id in text format (128 bytes) TODO: more efficient
-    vpn_addr: str # address inside the VPN (128 bytes) TODO: more efficient
+    uuid: str # unique id in text format (128 bytes) TODO: should be packed efficiently
+    vpn_addr4: str # IPv4 address inside the VPN (4 bytes)
+    vpn_addr6: str # IPV6 address inside the VPN (16 bytes)
 
     def pack(self) -> bytes:
-        return struct.pack(self._format, self.relay, b64decode(self.pubkey), self.uuid.encode(), self.vpn_addr.encode())
+        return struct.pack(self._format,
+                           self.relay,
+                           b64decode(self.pubkey),
+                           self.uuid.encode(),
+                           IPv4Address(self.vpn_addr4).packed,
+                           IPv6Address(self.vpn_addr6).packed)
 
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionRequest':
-        relay, pubkey, uuid, vpn_addr = struct.unpack(cls._format, inp)
-        return cls(relay, b64encode(pubkey).decode(), uuid.decode(), vpn_addr.rstrip(b'\x00').decode())
+        relay, pubkey, uuid, addr4, addr6 = struct.unpack(cls._format, inp)
+        return cls(relay, b64encode(pubkey).decode(), uuid.decode(), str(IPv4Address(addr4)), str(IPv6Address(addr6)))
 
 
 @dataclass
 class ConnectionResponse:
-    _format = '!32s128sH128s'
+    _format = '!32s16sH4s16s'
     peer_pubkey: str # wireguard pubkey of other peer (32 bytes)
-    peer_host: str # IPv4 or IPv6 address of other peer (128 bytes) TODO: more efficient
+    peer_host: str # IPv4 or IPv6 address of other peer (16 bytes)
     peer_port: int # port number of other peer (2 bytes)
-    peer_vpn_addr: bytes # address inside the VPN (128 bytes) # TODO: more efficient
+    peer_vpn_addr4: str # IPv4 address inside the VPN of other peer (4 bytes)
+    peer_vpn_addr6: str # IPV6 address inside the VPN of other peer (16 bytes)
 
     def pack(self) -> bytes:
-        return struct.pack(self._format, b64decode(self.peer_pubkey), self.peer_host.encode(), self.peer_port, self.peer_vpn_addr.encode())
+        return struct.pack(self._format,
+                           b64decode(self.peer_pubkey),
+                           ip_address(self.peer_host).packed,
+                           self.peer_port,
+                           ip_address(self.peer_vpn_addr4).packed,
+                           ip_address(self.peer_vpn_addr6).packed)
 
     @classmethod
     def unpack(cls, inp: bytes) -> 'ConnectionResponse':
-        pubkey, addr, port, vpn_addr = struct.unpack(cls._format, inp)
-        return cls(b64encode(pubkey).decode(), addr.rstrip(b'\x00').decode(), port, vpn_addr.rstrip(b'\x00').decode())
+        pubkey, host, port, vpn_addr4, vpn_addr6 = struct.unpack(cls._format, inp)
+        return cls(b64encode(pubkey).decode(), str(ip_address(host)), port, str(ip_address(vpn_addr4)), str(ip_address(vpn_addr6)))
