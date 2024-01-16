@@ -38,9 +38,8 @@ def handle_connection_request(data, addr, sock: socket.socket):
     req = ConnectionRequest.unpack(data)
 
     if req.uuid in PENDING_CONNECTIONS:
-        print('Second request, register connection')
-
         conn = Connection(PENDING_CONNECTIONS[req.uuid], ConnectionPeer(addr, req))
+        print('Second request, register connection:', conn)
 
         del PENDING_CONNECTIONS[req.uuid]
         if req.relay:
@@ -55,8 +54,9 @@ def handle_connection_request(data, addr, sock: socket.socket):
         resp = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr4, conn.b.req.vpn_addr6)
         sock.sendto(resp.pack(), conn.a.addr)
     else:
-        print('First request, register pending')
-        PENDING_CONNECTIONS[req.uuid] = ConnectionPeer(addr, req)
+        pending = ConnectionPeer(addr, req)
+        print('First request, register pending:', pending)
+        PENDING_CONNECTIONS[req.uuid] = pending
 
 
 def handle_other(data, addr, sock: socket.socket, verbose: bool):
