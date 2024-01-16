@@ -10,7 +10,8 @@ Simple wrapper script that allows creating peer to peer WireGuard tunnels with u
     "address6": "fdf0:a1e8:32b1:200::1",
     "interface": "wg5",
     "server_host": "localhost",
-    "server_port": 3000
+    "server_port": 3000,
+    "log_level": "INFO"
 }
 ```
 
@@ -20,6 +21,6 @@ UUID can be generated using `python3 -m uuid` and should be set to the same valu
 ```json
 {
     "server_port": 3000,
-    "verbose": true
+    "log_level": "INFO"
 }
 ```
