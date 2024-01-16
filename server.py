@@ -52,7 +52,7 @@ def handle_connection_request(data, addr, sock: socket.socket):
         sock.sendto(resp.pack(), conn.b.addr)
 
         # send B info to A
-        resp = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr4, conn.a.req.vpn_addr6)
+        resp = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr4, conn.b.req.vpn_addr6)
         sock.sendto(resp.pack(), conn.a.addr)
     else:
         print('First request, register pending')
