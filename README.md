@@ -8,8 +8,6 @@ Simple wrapper script that allows creating peer to peer WireGuard tunnels with u
     "uuid": "b20b3973-6dcd-43be-a097-e80126ae6532",
     "address4": "10.200.0.1",
     "address6": "fdf0:a1e8:32b1:200::1",
-    "privkey": "ULDD6isz4gjfGcDhEjIchYzpDsGcvgLwix+OX9eKM3w=",
-    "pubkey": "StCkEsOZoJnPbzYm7ydU54dqgPsBnyfyc/SvFE+gSXE=",
     "interface": "wg5",
     "server_host": "localhost",
     "server_port": 3000

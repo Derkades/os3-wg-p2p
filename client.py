@@ -13,6 +13,14 @@ def read_config():
         return json.load(config_file)
 
 
+def wg_genkey():
+    return subprocess.run(['wg', 'genkey'], check=True, capture_output=True).stdout.decode()
+
+
+def wg_pubkey(privkey: str):
+    return subprocess.run(['wg', 'pubkey'], input=privkey.encode(), check=True, capture_output=True).stdout.decode()
+
+
 def create_wg_interface(if_name: str, privkey: str, port: int, addr4: str, addr6: str,
                         peer_pubkey: str, peer_addr4: str, peer_addr6: str, peer_endpoint: str):
     fd, temp_path = tempfile.mkstemp()
@@ -42,21 +50,22 @@ PersistentKeepalive = 25
 
 
 def main():
-    # TODO also exchange VPN address
     config = read_config()
     do_relay = bool(int(input('Use relay, 1 or 0?')))
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    req = ConnectionRequest(do_relay, config['pubkey'], config['uuid'], config['address4'], config['address6'])
-    sock.sendto(MAGIC_HEADER + req.pack(), (config['server_host'], config['server_port']))
-    print('Sent data to relay server, waiting for response')
-    data = sock.recv(1024)
-    resp = ConnectionResponse.unpack(data)
-    print('Got response:', resp)
+    privkey = wg_genkey()
+    pubkey = wg_pubkey(privkey)
 
-    # remember source port
-    source_port = sock.getsockname()[1]
-    sock.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        req = ConnectionRequest(do_relay, pubkey, config['uuid'], config['address4'], config['address6'])
+        sock.sendto(MAGIC_HEADER + req.pack(), (config['server_host'], config['server_port']))
+        print('Sent data to relay server, waiting for response')
+        data = sock.recv(1024)
+        resp = ConnectionResponse.unpack(data)
+        print('Got response:', resp)
+
+        # remember source port before closing
+        source_port = sock.getsockname()[1]
 
     if do_relay:
         print('Using relay server')
@@ -69,16 +78,15 @@ def main():
         peer_port = resp.peer_port
 
         # Datagram to create entry in NAT table
-        sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock2.bind(('', source_port))
-        sock2.sendto(b'', (peer_host, peer_port))
-        sock2.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock2:
+            sock2.bind(('', source_port))
+            sock2.sendto(b'', (peer_host, peer_port))
 
         # Wait for UDP packet to be sent in both directions
         time.sleep(2)
 
     create_wg_interface(config['interface'],
-                        config['privkey'],
+                        privkey,
                         source_port,
                         config['address4'],
                         config['address6'],
