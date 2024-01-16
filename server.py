@@ -47,12 +47,14 @@ def handle_connection_request(data, addr, sock: socket.socket):
             CONNECTIONS[conn.b.addr] = conn
 
         # send A info to B
-        resp = ConnectionResponse(conn.a.req.pubkey, conn.a.addr[0], conn.a.addr[1], conn.a.req.vpn_addr4, conn.a.req.vpn_addr6)
-        sock.sendto(resp.pack(), conn.b.addr)
+        resp_a = ConnectionResponse(conn.a.req.pubkey, conn.a.addr[0], conn.a.addr[1], conn.a.req.vpn_addr4, conn.a.req.vpn_addr6)
+        print('Send to A:', resp_a)
+        sock.sendto(resp_a.pack(), conn.b.addr)
 
         # send B info to A
-        resp = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr4, conn.b.req.vpn_addr6)
-        sock.sendto(resp.pack(), conn.a.addr)
+        resp_b = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr4, conn.b.req.vpn_addr6)
+        print('Send to B:', resp_b)
+        sock.sendto(resp_b.pack(), conn.a.addr)
     else:
         pending = ConnectionPeer(addr, req)
         print('First request, register pending:', pending)
