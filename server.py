@@ -3,6 +3,7 @@ import logging
 import socket
 from dataclasses import dataclass
 from threading import Thread
+import time
 
 import messages
 from messages import (MAGIC_HEADER, AddressResponse, PeerHello, PeerInfo,
@@ -60,6 +61,8 @@ def mgmt_client_thread(sock, addr):
 
         if hello.relay:
             NETWORK_BY_ADDR[(hello.host, hello.port)] = net
+
+        time.sleep(2)
 
         log.info('broadcast updated peer list')
         peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in net.peers])
