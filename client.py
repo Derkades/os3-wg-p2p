@@ -65,9 +65,6 @@ def wg_update_peers(if_name: str, peers: list[PeerInfo], relay_host: str, relay_
             # but how to do that without restarting WireGuard? raw sockets?
             # Datagram to create entry in NAT table
             udp.send(b'', ('127.0.0.1', source_port), (host, port))
-            # with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            #     sock.bind(('', source_port))
-            #     sock.sendto(b'', (host, port))
             # Wait for UDP packet to be sent in both directions
             time.sleep(1)
         run(['wg', 'set', if_name, 'peer', peer.pubkey, 'endpoint', f'{host}:{port}', 'persistent-keepalive', '25', 'allowed-ips', f'{peer.vpn_addr4}/32, {peer.vpn_addr6}/128'])
@@ -78,8 +75,7 @@ def main():
     logging.basicConfig()
     logging.getLogger().setLevel(config['log_level'])
 
-    # use_relay = bool(int(input('use relay, 1 or 0? ')))
-    use_relay = False
+    use_relay = bool(int(input('use relay, 1 or 0? ')))
 
     privkey = wg_genkey()
     pubkey = wg_pubkey(privkey)

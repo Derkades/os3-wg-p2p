@@ -121,7 +121,6 @@ def main():
     logging.getLogger().setLevel(config['log_level'])
 
     Thread(target=udp_socket, daemon=True, args=(config,)).start()
-    # stun_socket(config['server_port'])
     mgmt_server_socket(config)
 
 
