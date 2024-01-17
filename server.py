@@ -1,10 +1,12 @@
 import json
+import logging
 import socket
 from dataclasses import dataclass
-import logging
+from threading import Thread
 
-from connection import MAGIC_HEADER, ConnectionRequest, ConnectionResponse
-
+import messages
+from messages import (MAGIC_HEADER, AddressResponse, PeerHello, PeerInfo,
+                      PeerList)
 
 log = logging.getLogger('server')
 
@@ -15,68 +17,102 @@ def read_config():
 
 
 @dataclass
-class ConnectionPeer:
-    addr: tuple[str, int]
-    req: ConnectionRequest
+class Peer:
+    """Device (a WireGuard interface) in a network"""
+    mgmt_sock: socket.socket
+    wg_addr: tuple[str, int]
+    pubkey: str
+    vpn_addr4: str
+    vpn_addr6: str
 
 
 @dataclass
-class Connection:
-    a: ConnectionPeer
-    b: ConnectionPeer
+class Network:
+    """Network of peers"""
+    uuid: str
+    peers: list[Peer]
+
+NETWORK_BY_UUID: dict[str, Network] = {}
+NETWORK_BY_ADDR: dict[tuple[str, int], Network] = {}  # for relay only
+
+def mgmt_client_thread(sock, addr):
+    while True:
+        data = sock.recv(16384)
+        if data == b'':
+            break
+
+        log.debug('received PeerHello %s %s', data, addr)
+
+        hello: PeerHello = messages.unpack(data)
+
+        new_peer = Peer(sock, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
+
+        log.debug('new peer: %s', new_peer)
+
+        if hello.uuid in NETWORK_BY_UUID:
+            log.info('joining peer onto existing network %s', hello.uuid)
+            net = NETWORK_BY_UUID[hello.uuid]
+            net.peers.append(new_peer)
+        else:
+            log.info('registered new network %s for peer %s', hello.uuid, addr)
+            net = Network(hello.uuid, [new_peer])
+            NETWORK_BY_UUID[hello.uuid] = net
+
+        if hello.relay:
+            NETWORK_BY_ADDR[(hello.host, hello.port)] = net
+
+        log.info('broadcast updated peer list')
+        peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in net.peers])
+        peer_list_bytes = messages.pack(peer_list)
+        broken_peers: list[Peer] = []
+        for peer in net.peers:
+            try:
+                peer.mgmt_sock.send(peer_list_bytes)
+            except BrokenPipeError:
+                broken_peers.append(peer)
+
+        for broken_peer in broken_peers:
+            log.info('removing disconnected peer: %s', broken_peer.pubkey)
+            net.peers.remove(broken_peer)
 
 
-# Pending connections by UUID
-PENDING_CONNECTIONS: dict[str, ConnectionPeer] = {}
-# Connections by address
-CONNECTIONS: dict[tuple[str, int], Connection] = {}
+def mgmt_server_socket(config):
+    bind_addr = ('0.0.0.0', config['server_port'])
+    log.info('listening for TCP on %s', bind_addr)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(bind_addr)
+        sock.listen()
+        while True:
+            sock2, addr = sock.accept()
+            Thread(target=mgmt_client_thread, daemon=True, args=(sock2, addr)).start()
 
 
-def handle_connection_request(data, addr, sock: socket.socket):
-    if addr in CONNECTIONS:
-        log.warning('already has connection, destroying previous connection')
-        conn = CONNECTIONS[addr]
-        del CONNECTIONS[conn.a.addr]
-        del CONNECTIONS[conn.b.addr]
+def udp_socket(config):
+    bind_addr = ('0.0.0.0', config['server_port'])
+    log.info('listening for UDP on %s', bind_addr)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(bind_addr)
+        while True:
+            data, addr = sock.recvfrom(1024)
+            if data == MAGIC_HEADER:
+                log.info('sending address response to %s', addr)
+                sock.sendto(AddressResponse(addr[0], addr[1]).pack(), addr)
+                continue
 
-    req = ConnectionRequest.unpack(data)
+            if addr in NETWORK_BY_ADDR:
+                # Relay to all peers in the network. This is very inefficient for
+                # larger networks. A proper solution would be to run a separate
+                # UDP relay for every peer on a dedicated port. Then, outbound
+                # traffic from WireGuard would go to a different relay depending
+                # on the desired actual peer.
 
-    if req.uuid in PENDING_CONNECTIONS:
-        conn = Connection(PENDING_CONNECTIONS[req.uuid], ConnectionPeer(addr, req))
-        log.info('second request from %s, register connection', addr)
-        log.debug('conn: %s', conn)
+                net = NETWORK_BY_ADDR[addr]
+                for peer in net.peers:
+                    log.debug('relay %s -> %s', addr, peer.wg_addr)
+                    sock.sendto(data, peer.wg_addr)
+                continue
 
-        del PENDING_CONNECTIONS[req.uuid]
-        if req.relay:
-            CONNECTIONS[conn.a.addr] = conn
-            CONNECTIONS[conn.b.addr] = conn
-
-        # send A info to B
-        resp_a = ConnectionResponse(conn.a.req.pubkey, conn.a.addr[0], conn.a.addr[1], conn.a.req.vpn_addr4, conn.a.req.vpn_addr6)
-        log.debug('send response to a: %s', resp_a)
-        sock.sendto(resp_a.pack(), conn.b.addr)
-
-        # send B info to A
-        resp_b = ConnectionResponse(conn.b.req.pubkey, conn.b.addr[0], conn.b.addr[1], conn.b.req.vpn_addr4, conn.b.req.vpn_addr6)
-        log.debug('send response to b: %s', resp_b)
-        sock.sendto(resp_b.pack(), conn.a.addr)
-    else:
-        pending = ConnectionPeer(addr, req)
-        log.info('first request from %s, register pending', addr)
-        log.debug('peer: %s', pending)
-        PENDING_CONNECTIONS[req.uuid] = pending
-
-
-def handle_other(data, addr, sock: socket.socket):
-    if addr not in CONNECTIONS:
-        log.info('ignoring message from unknown address: %s', addr)
-        return
-
-    conn = CONNECTIONS[addr]
-
-    dest_addr = conn.b.addr if addr == conn.a.addr else conn.a.addr
-    log.debug('relaying message: %s bytes %s -> %s', len(data), addr, dest_addr)
-    sock.sendto(data, dest_addr)
+            log.warning('received unknown data from %s', addr)
 
 
 def main():
@@ -84,19 +120,9 @@ def main():
     logging.basicConfig()
     logging.getLogger().setLevel(config['log_level'])
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    bind_addr = ('0.0.0.0', config['server_port'])
-    log.info('listening on %s', bind_addr)
-    sock.bind(bind_addr)
-
-    while True:
-        data, addr = sock.recvfrom(2048)
-
-        if data.startswith(MAGIC_HEADER):
-            handle_connection_request(data[len(MAGIC_HEADER):], addr, sock)
-            continue
-
-        handle_other(data, addr, sock)
+    Thread(target=udp_socket, daemon=True, args=(config,)).start()
+    # stun_socket(config['server_port'])
+    mgmt_server_socket(config)
 
 
 if __name__ == '__main__':
