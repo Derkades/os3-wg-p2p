@@ -22,7 +22,7 @@ def read_config():
 @dataclass
 class Peer:
     """Device (a WireGuard interface) in a network"""
-    sock: socket.socket
+    send: function
     wg_addr: tuple[str, int]
     pubkey: str
     vpn_addr4: str
@@ -42,19 +42,19 @@ SOCKETS: set[socket.socket] = set()
 POOL = ThreadPool(16)
 
 
-def broadcast_peers(peers: list[Peer], send):
+def broadcast_peers(peers: list[Peer]):
     log.info('broadcast updated peer list to %s peers', len(peers))
     peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
     peer_list_bytes = messages.pack(peer_list)
     for peer in peers:
-        send(peer.sock, peer_list_bytes)
+        peer.send( peer_list_bytes)
 
 
-def handle_peer_hello(data, sock, send):
+def handle_peer_hello(data, send):
     log.debug('received PeerHello %s', data)
 
     hello: PeerHello = messages.unpack(data)
-    new_peer = Peer(sock, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
+    new_peer = Peer(send, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
 
     log.debug('new peer: %s', new_peer)
 
@@ -71,10 +71,10 @@ def handle_peer_hello(data, sock, send):
 
     time.sleep(1) # wait for client to be ready to receive management data
 
-    broadcast_peers(net.peers, send)
+    broadcast_peers(net.peers)
 
 
-def remove_peer(sock: socket.socket, send):
+def remove_peer(sock: socket.socket):
     for net in NETWORK_BY_ADDR.values():
         for peer in net.peers:
             if peer.sock is sock:
@@ -83,7 +83,7 @@ def remove_peer(sock: socket.socket, send):
             continue
         log.info('removing disconnected peer: %s', peer)
         net.peers.remove(peer)
-        broadcast_peers(net.peers, send)
+        broadcast_peers(net.peers)
 
 
 def mgmt_server_socket(config):
@@ -110,7 +110,7 @@ def mgmt_server_socket(config):
             if sock in outputs:
                 outputs.remove(sock)
             sock.close()
-            remove_peer(sock, send)
+            remove_peer(sock)
 
         while inputs:
             readable, writable, exceptional = select.select(inputs, outputs, inputs)
@@ -127,7 +127,7 @@ def mgmt_server_socket(config):
                 data = sock.recv(16384)
                 log.debug('received data from client: %s', data)
                 if data:
-                    handle_peer_hello(data, sock, send)
+                    handle_peer_hello(data, send)
                 else:
                     close(sock)
 
