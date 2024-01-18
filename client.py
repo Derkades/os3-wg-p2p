@@ -61,12 +61,10 @@ def wg_update_peers(if_name: str, peers: list[PeerInfo], relay_host: str, relay_
         else:
             host = peer.host
             port = peer.port
-            # TODO hole punching for new peer is needed
-            # but how to do that without restarting WireGuard? raw sockets?
             # Datagram to create entry in NAT table
             udp.send(b'', ('127.0.0.1', source_port), (host, port))
             # Wait for UDP packet to be sent in both directions
-            time.sleep(1)
+            time.sleep(2)
         run(['wg', 'set', if_name, 'peer', peer.pubkey, 'endpoint', f'{host}:{port}', 'persistent-keepalive', '25', 'allowed-ips', f'{peer.vpn_addr4}/32, {peer.vpn_addr6}/128'])
 
 
@@ -85,10 +83,11 @@ def main():
     # Send UDP packet to server to discover external address and port.
     # Also opens up NAT/firewall to receive UDP from relay server to WireGuard
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        log.info('sending hello to server: %s:%s', config['server_host'], config['server_port'])
         sock.sendto(MAGIC_HEADER, (config['server_host'], config['server_port']))
-        data = sock.recv(AddressResponse.SIZE)
+        data = sock.recv(AddressResponse.SIZE)  # TODO time-out and retry
         addr_resp = AddressResponse.unpack(data)
-        log.debug('got response: %s', addr_resp)
+        log.info('external address: %s:%s', addr_resp.host, addr_resp.port)
         # Remember source port before closing, must be reused for WireGuard
         source_port = sock.getsockname()[1]
 
@@ -110,6 +109,7 @@ def main():
             peer_list: PeerList = messages.unpack(data)
             log.debug("peer list: %s", peer_list)
             wg_update_peers(config['interface'], peer_list.peers, config['server_host'], config['server_port'], use_relay, source_port)
+
 
 if __name__ == '__main__':
     main()
