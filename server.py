@@ -54,8 +54,7 @@ def broadcast_peers(peers):
         except BrokenPipeError:
             broken_peers.append(peer)
 
-    for peer in peers:
-        POOL.apply_async(send_peer_list, args=(peer,))
+    POOL.map(send_peer_list, peers)
 
     for broken_peer in broken_peers:
         log.info('removing disconnected peer: %s', broken_peer.pubkey)
