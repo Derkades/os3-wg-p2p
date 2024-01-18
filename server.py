@@ -135,8 +135,9 @@ def udp_socket(config):
                 # traffic from WireGuard would go to a different relay depending
                 # on the desired actual peer.
                 for peer in net.peers:
-                    log.debug('relay %s -> %s', addr, peer.wg_addr)
-                    sock.sendto(data, peer.wg_addr)
+                    if addr != peer.wg_addr:
+                        log.debug('relay %s -> %s', addr, peer.wg_addr)
+                        sock.sendto(data, peer.wg_addr)
                 continue
 
             log.warning('received unknown data from %s', addr)
