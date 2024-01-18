@@ -3,6 +3,7 @@ import json
 import struct
 from dataclasses import asdict, dataclass
 from ipaddress import IPv4Address
+from abc import ABC
 
 MAGIC_HEADER = b'awesome peer to peer'
 
@@ -23,8 +24,7 @@ class AddressResponse:
         return cls(str(IPv4Address(host)), port)
 
 
-@dataclass
-class Message:
+class Message(ABC):
     pass
 
 
