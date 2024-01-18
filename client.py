@@ -9,8 +9,7 @@ from dataclasses import dataclass
 
 import messages
 import udp
-from messages import (MAGIC, AddressResponse, PeerHello, PeerInfo,
-                      PeerList)
+from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
 
 log = logging.getLogger('client')
 

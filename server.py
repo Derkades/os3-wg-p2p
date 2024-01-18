@@ -1,15 +1,15 @@
 import json
 import logging
+import queue
+import select
 import socket
-from dataclasses import dataclass
-from threading import Thread
-from multiprocessing.pool import ThreadPool
 import time
-import sys
+from dataclasses import dataclass
+from multiprocessing.pool import ThreadPool
+from threading import Thread
 
 import messages
-from messages import (MAGIC, AddressResponse, PeerHello, PeerInfo,
-                      PeerList)
+from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
 
 log = logging.getLogger('server')
 
@@ -22,7 +22,7 @@ def read_config():
 @dataclass
 class Peer:
     """Device (a WireGuard interface) in a network"""
-    mgmt_sock: socket.socket
+    sock: socket.socket
     wg_addr: tuple[str, int]
     pubkey: str
     vpn_addr4: str
@@ -42,79 +42,105 @@ SOCKETS: set[socket.socket] = set()
 POOL = ThreadPool(16)
 
 
-def broadcast_peers(peers):
+def broadcast_peers(peers: list[Peer], send):
     log.info('broadcast updated peer list to %s peers', len(peers))
     peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
     peer_list_bytes = messages.pack(peer_list)
-
-    def send_peer_list(peer):
-        try:
-            peer.mgmt_sock.send(peer_list_bytes)
-            return None
-        except BrokenPipeError:
-            return peer
-
-    broken_peers = POOL.map(send_peer_list, peers)
-    has_removed_peer = False
-
-    for broken_peer in broken_peers:
-        if broken_peer:
-            log.info('removing disconnected peer: %s', broken_peer.pubkey)
-            peers.remove(broken_peer)
-            SOCKETS.remove(broken_peer)
-            has_removed_peer = True
-
-    if has_removed_peer:
-        log.debug('debug')
-        # Peer list has changed now that peer(s) have been removed
-        broadcast_peers(peers)
+    for peer in peers:
+        send(peer.sock, peer_list_bytes)
 
 
-def mgmt_client_thread(sock):
-    while True:
-        data = sock.recv(16384)
-        if data == b'':
-            break
+def handle_peer_hello(data, sock, send):
+    log.debug('received PeerHello %s', data)
 
-        log.debug('received PeerHello %s', data)
+    hello: PeerHello = messages.unpack(data)
+    new_peer = Peer(sock, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
 
-        hello: PeerHello = messages.unpack(data)
-        new_peer = Peer(sock, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
+    log.debug('new peer: %s', new_peer)
 
-        log.debug('new peer: %s', new_peer)
+    if hello.uuid in NETWORK_BY_UUID:
+        log.info('joining peer %s onto existing network %s', hello.pubkey, hello.uuid)
+        net = NETWORK_BY_UUID[hello.uuid]
+        net.peers.append(new_peer)
+    else:
+        log.info('registered new network %s for peer %s', hello.uuid, hello.pubkey)
+        net = Network(hello.uuid, [new_peer])
+        NETWORK_BY_UUID[hello.uuid] = net
 
-        if hello.uuid in NETWORK_BY_UUID:
-            log.info('joining peer %s onto existing network %s', hello.pubkey, hello.uuid)
-            net = NETWORK_BY_UUID[hello.uuid]
-            #     if peer.vpn_addr4 == new_peer.vpn_addr4 or peer.vpn_addr6 == peer.vpn
-            net.peers.append(new_peer)
+    NETWORK_BY_ADDR[(hello.host, hello.port)] = net
+
+    time.sleep(1) # wait for client to be ready to receive management data
+
+    broadcast_peers(net.peers, send)
+
+
+def remove_peer(sock: socket.socket, send):
+    for net in NETWORK_BY_ADDR.values():
+        for peer in net.peers:
+            if peer.sock is sock:
+                break
         else:
-            log.info('registered new network %s for peer %s', hello.uuid, hello.pubkey)
-            net = Network(hello.uuid, [new_peer])
-            NETWORK_BY_UUID[hello.uuid] = net
-
-        NETWORK_BY_ADDR[(hello.host, hello.port)] = net
-
-        time.sleep(1) # wait for client to be ready to receive management data
-
-        broadcast_peers(net.peers)
+            continue
+        log.info('removing disconnected peer: %s', peer)
+        net.peers.remove(peer)
+        broadcast_peers(net.peers, send)
 
 
 def mgmt_server_socket(config):
     bind_addr = ('0.0.0.0', config['server_port'])
     log.info('listening for TCP on %s', bind_addr)
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        SOCKETS.add(sock)
-        sock.bind(bind_addr)
-        sock.listen()
-        while True:
-            try:
-                client_sock, _client_addr = sock.accept()
-            except OSError:
-                break
-            SOCKETS.add(client_sock)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setblocking(0)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(bind_addr)
+        server.listen()
+        SOCKETS.add(server)
 
-            POOL.apply_async(mgmt_client_thread, args=(client_sock,))
+        inputs: list[socket.socket] = [server]
+        outputs = []
+        queues: dict[socket.socket, queue.Queue] = {}
+
+        def send(sock, message):
+            queues[sock].put(message)
+            outputs.append(sock)
+
+        def close(sock: socket.socket):
+            log.debug('closing socket')
+            inputs.remove(sock)
+            if sock in outputs:
+                outputs.remove(sock)
+            sock.close()
+            remove_peer(sock, send)
+
+        while inputs:
+            readable, writable, exceptional = select.select(inputs, outputs, inputs)
+
+            for sock in readable:
+                if sock is server:
+                    client_sock, client_addr = sock.accept()
+                    log.debug('new client connected from %s', client_addr)
+                    inputs.append(client_sock)
+                    SOCKETS.add(client_sock)
+                    queues[client_sock] = queue.Queue()
+                    continue
+
+                data = sock.recv(16384)
+                log.debug('received data from client: %s', data)
+                if data:
+                    handle_peer_hello(data, sock, send)
+                else:
+                    close(sock)
+
+            for sock in writable:
+                try:
+                    next_msg = queues[sock].get_nowait()
+                except queue.Empty:
+                    outputs.remove(sock)
+                else:
+                    sock.send(next_msg)
+
+            for sock in exceptional:
+                close(sock)
 
     log.debug('mgmt exit')
 

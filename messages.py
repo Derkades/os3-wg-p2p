@@ -1,9 +1,9 @@
 import gzip
 import json
 import struct
+from abc import ABC
 from dataclasses import asdict, dataclass
 from ipaddress import IPv4Address
-from abc import ABC
 
 MAGIC = b'awesome peer to peer magic to distinguish packet as different from wiregurad traffic'
 
