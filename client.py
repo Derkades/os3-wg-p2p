@@ -107,6 +107,7 @@ def main():
                 break
 
             peer_list: PeerList = messages.unpack(data)
+            log.info('received %s peers from server', len(peer_list.peers))
             log.debug("peer list: %s", peer_list)
             wg_update_peers(config['interface'], peer_list.peers, config['server_host'], config['server_port'], use_relay, source_port)
 
