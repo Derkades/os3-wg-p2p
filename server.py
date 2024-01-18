@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass
 from multiprocessing.pool import ThreadPool
 from threading import Thread
-from typing import Callable
 
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
@@ -23,7 +22,7 @@ def read_config():
 @dataclass
 class Peer:
     """Device (a WireGuard interface) in a network"""
-    send: Callable
+    send: function
     wg_addr: tuple[str, int]
     pubkey: str
     vpn_addr4: str
@@ -118,10 +117,7 @@ def mgmt_server_socket(config):
 
             for sock in readable:
                 if sock is server:
-                    try:
-                        client_sock, client_addr = sock.accept()
-                    except OSError:
-                        break
+                    client_sock, client_addr = sock.accept()
                     log.debug('new client connected from %s', client_addr)
                     inputs.append(client_sock)
                     SOCKETS.add(client_sock)
