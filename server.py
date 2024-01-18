@@ -48,7 +48,7 @@ def broadcast_peers(peers: list[Peer]):
     peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
     peer_list_bytes = messages.pack(peer_list)
     for peer in peers:
-        peer.send(peer_list_bytes)
+        peer.send( peer_list_bytes)
 
 
 def handle_peer_hello(data, send):
