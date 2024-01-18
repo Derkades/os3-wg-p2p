@@ -8,7 +8,7 @@ import time
 import sys
 
 import messages
-from messages import (MAGIC_HEADER, AddressResponse, PeerHello, PeerInfo,
+from messages import (MAGIC, AddressResponse, PeerHello, PeerInfo,
                       PeerList)
 
 log = logging.getLogger('server')
@@ -121,7 +121,7 @@ def udp_socket(config):
             if data == b'':
                 break
 
-            if data == MAGIC_HEADER:
+            if data == MAGIC:
                 log.info('sending address response to %s', addr)
                 sock.sendto(AddressResponse(addr[0], addr[1]).pack(), addr)
                 continue

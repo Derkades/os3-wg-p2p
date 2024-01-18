@@ -8,7 +8,7 @@ import time
 
 import messages
 import udp
-from messages import (MAGIC_HEADER, AddressResponse, PeerHello, PeerInfo,
+from messages import (MAGIC, AddressResponse, PeerHello, PeerInfo,
                       PeerList)
 
 log = logging.getLogger('client')
@@ -84,7 +84,7 @@ def main():
     # Also opens up NAT/firewall to receive UDP from relay server to WireGuard
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         log.info('sending hello to server: %s:%s', config['server_host'], config['server_port'])
-        sock.sendto(MAGIC_HEADER, (config['server_host'], config['server_port']))
+        sock.sendto(MAGIC, (config['server_host'], config['server_port']))
         data = sock.recv(AddressResponse.SIZE)  # TODO time-out and retry
         addr_resp = AddressResponse.unpack(data)
         log.info('external address: %s:%s', addr_resp.host, addr_resp.port)

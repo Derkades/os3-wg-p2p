@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from ipaddress import IPv4Address
 from abc import ABC
 
-MAGIC_HEADER = b'awesome peer to peer'
+MAGIC = b'awesome peer to peer magic to distinguish packet as different from wiregurad traffic'
 
 
 @dataclass
