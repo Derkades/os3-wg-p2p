@@ -39,11 +39,11 @@ class Network:
 NETWORK_BY_UUID: dict[str, Network] = {}
 NETWORK_BY_ADDR: dict[tuple[str, int], Network] = {}  # for relay only
 SOCKETS: set[socket.socket] = set()
-POOL = ThreadPool(4)
+POOL = ThreadPool(16)
 
 
 def broadcast_peers(peers):
-    log.info('broadcast updated peer list')
+    log.info('broadcast updated peer list to %s peers', len(peers))
     peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
     peer_list_bytes = messages.pack(peer_list)
     broken_peers: list[Peer] = []
