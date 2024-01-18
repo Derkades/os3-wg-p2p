@@ -101,10 +101,6 @@ def mgmt_server_socket(config):
         outputs = []
         queues: dict[socket.socket, queue.Queue] = {}
 
-        def send(sock, message):
-            queues[sock].put(message)
-            outputs.append(sock)
-
         def close(sock: socket.socket):
             log.debug('closing socket')
             inputs.remove(sock)
@@ -127,6 +123,10 @@ def mgmt_server_socket(config):
                     SOCKETS.add(client_sock)
                     queues[client_sock] = queue.Queue()
                     continue
+
+                def send(message):
+                    queues[sock].put(message)
+                    outputs.append(sock)
 
                 data = sock.recv(16384)
                 log.debug('received data from client: %s', data)
