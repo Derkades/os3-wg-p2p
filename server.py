@@ -119,6 +119,7 @@ def udp_socket(config):
         while True:
             data, addr = sock.recvfrom(1024)
             if data == b'':
+                log.debug('udp socket is dead')
                 break
 
             if data == MAGIC:
@@ -140,7 +141,6 @@ def udp_socket(config):
                 continue
 
             log.warning('received unknown data from %s', addr)
-    log.debug('udp exit')
 
 
 def main():
