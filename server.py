@@ -84,8 +84,7 @@ def mgmt_client_thread(sock):
             net = Network(hello.uuid, [new_peer])
             NETWORK_BY_UUID[hello.uuid] = net
 
-        if hello.relay:
-            NETWORK_BY_ADDR[(hello.host, hello.port)] = net
+        NETWORK_BY_ADDR[(hello.host, hello.port)] = net
 
         time.sleep(1) # wait for client to be ready to receive management data
 

@@ -30,7 +30,6 @@ class Message(ABC):
 
 @dataclass
 class PeerHello(Message):
-    relay: bool
     uuid: str # uuid
     pubkey: str # wireguard pubkey
     vpn_addr4: str # IPv4 address inside the VPN

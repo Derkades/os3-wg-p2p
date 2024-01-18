@@ -98,7 +98,7 @@ def main():
         sock.connect((config['server_host'], config['server_port']))
 
         # Send hello to server via management channel
-        hello = PeerHello(use_relay, config['uuid'], pubkey, config['address4'], config['address6'], addr_resp.host, addr_resp.port)
+        hello = PeerHello(config['uuid'], pubkey, config['address4'], config['address6'], addr_resp.host, addr_resp.port)
         sock.send(messages.pack(hello))
 
         while True:
