@@ -65,6 +65,7 @@ def broadcast_peers(peers):
             has_removed_peer = True
 
     if has_removed_peer:
+        log.debug('debug')
         # Peer list has changed now that peer(s) have been removed
         broadcast_peers(peers)
 
