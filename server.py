@@ -39,7 +39,6 @@ class Network:
 NETWORK_BY_UUID: dict[str, Network] = {}
 NETWORK_BY_ADDR: dict[tuple[str, int], Network] = {}  # for relay only
 SOCKETS: set[socket.socket] = set()
-POOL = ThreadPool(16)
 
 
 def broadcast_peers(peers: list[Peer], send):
@@ -197,8 +196,6 @@ def main():
             except OSError:
                 pass
             sock.close()
-
-        POOL.terminate()
 
 
 if __name__ == '__main__':
