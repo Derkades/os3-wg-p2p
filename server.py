@@ -46,22 +46,25 @@ def broadcast_peers(peers):
     log.info('broadcast updated peer list to %s peers', len(peers))
     peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
     peer_list_bytes = messages.pack(peer_list)
-    broken_peers: list[Peer] = []
 
     def send_peer_list(peer):
         try:
             peer.mgmt_sock.send(peer_list_bytes)
+            return None
         except BrokenPipeError:
-            broken_peers.append(peer)
+            return peer
 
-    POOL.map(send_peer_list, peers)
+    broken_peers = POOL.map(send_peer_list, peers)
+    has_removed_peer = False
 
     for broken_peer in broken_peers:
-        log.info('removing disconnected peer: %s', broken_peer.pubkey)
-        peers.remove(broken_peer)
-        SOCKETS.remove(broken_peer)
+        if broken_peer:
+            log.info('removing disconnected peer: %s', broken_peer.pubkey)
+            peers.remove(broken_peer)
+            SOCKETS.remove(broken_peer)
+            has_removed_peer = True
 
-    if len(broken_peers) > 0:
+    if has_removed_peer:
         # Peer list has changed now that peer(s) have been removed
         broadcast_peers(peers)
 
