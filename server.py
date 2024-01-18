@@ -61,6 +61,10 @@ def broadcast_peers(peers):
         peers.remove(broken_peer)
         SOCKETS.remove(broken_peer)
 
+    if len(broken_peers) > 0:
+        # Peer list has changed now that peer(s) have been removed
+        broadcast_peers(peers)
+
 
 def mgmt_client_thread(sock):
     while True:
@@ -78,6 +82,7 @@ def mgmt_client_thread(sock):
         if hello.uuid in NETWORK_BY_UUID:
             log.info('joining peer %s onto existing network %s', hello.pubkey, hello.uuid)
             net = NETWORK_BY_UUID[hello.uuid]
+            #     if peer.vpn_addr4 == new_peer.vpn_addr4 or peer.vpn_addr6 == peer.vpn
             net.peers.append(new_peer)
         else:
             log.info('registered new network %s for peer %s', hello.uuid, hello.pubkey)

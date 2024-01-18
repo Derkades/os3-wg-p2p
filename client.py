@@ -38,6 +38,7 @@ def run(command: list[str], check=True, input=None, capture_output=False) -> byt
 class WireGuard:
     if_name: str
     privkey: str
+    pubkey: str
     listen_port: int
     addr4: str
     addr6: str
@@ -60,8 +61,15 @@ class WireGuard:
         return run(['wg', 'show', self.if_name, 'peers'], capture_output=True).splitlines()
 
     def update_peers(self, peers: list[PeerInfo], relay_host: str, relay_port: int, use_relay: bool, source_port: int):
-        # TODO remove peers from interface that are not in the peers list
+        current_pubkeys = self.list_peers()
+        log.debug('current peers: %s', current_pubkeys)
+
         for peer in peers:
+            if peer.pubkey == self.pubkey or peer.pubkey in current_pubkeys:
+                continue
+
+            log.info('adding peer: %s', peer.pubkey)
+
             if use_relay:
                 host = relay_host
                 port = relay_port
@@ -74,13 +82,19 @@ class WireGuard:
                 time.sleep(2)
             run(['wg', 'set', self.if_name, 'peer', peer.pubkey, 'endpoint', f'{host}:{port}', 'persistent-keepalive', '25', 'allowed-ips', f'{peer.vpn_addr4}/32, {peer.vpn_addr6}/128'])
 
+        active_pubkeys = {peer.pubkey for peer in peers}
+        for pubkey in current_pubkeys:
+            if pubkey not in active_pubkeys:
+                log.info('removing peer: %s', pubkey)
+                run(['wg', 'set', self.if_name, 'peer', pubkey, 'remove'])
+
     @staticmethod
-    def genkey():
+    def gen_privkey():
         return run(['wg', 'genkey'], capture_output=True)[:-1]
 
     @staticmethod
-    def pubkey(privkey: str):
-        return run(['wg', 'genkey'], capture_output=True)[:-1]
+    def gen_pubkey(privkey: str):
+        return run(['wg', 'pubkey'], input=privkey.encode(), capture_output=True)[:-1]
 
 
 def main():
@@ -90,8 +104,8 @@ def main():
 
     use_relay = bool(int(input('use relay, 1 or 0? ')))
 
-    privkey = WireGuard.genkey()
-    pubkey = WireGuard.pubkey(privkey)
+    privkey = WireGuard.gen_privkey()
+    pubkey = WireGuard.gen_pubkey(privkey)
 
     log.debug('wireguard public key: %s', pubkey)
 
@@ -106,7 +120,7 @@ def main():
         # Remember source port before closing, must be reused for WireGuard
         source_port = sock.getsockname()[1]
 
-    with WireGuard(config['interface'], privkey, source_port, config['address4'], config['address6']) as wg:
+    with WireGuard(config['interface'], privkey, pubkey, source_port, config['address4'], config['address6']) as wg:
         # Establish connection for management channel
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((config['server_host'], config['server_port']))
