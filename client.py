@@ -6,17 +6,13 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import messages
 import udp
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
 
 log = logging.getLogger('client')
-
-
-def read_config():
-    with open('client_config.json', encoding='utf-8') as config_file:
-        return json.load(config_file)
 
 
 def create_tempfile(content: bytes) -> str:
@@ -41,6 +37,7 @@ class WireGuard:
     listen_port: int
     addr4: str
     addr6: str
+    relay_endpoint: str
 
     def __enter__(self):
         privkey_path = create_tempfile(self.privkey.encode())
@@ -59,7 +56,7 @@ class WireGuard:
     def list_peers(self) -> list[str]:
         return run(['wg', 'show', self.if_name, 'peers'], capture_output=True).splitlines()
 
-    def update_peers(self, peers: list[PeerInfo], relay_host: str, relay_port: int, use_relay: bool, source_port: int):
+    def update_peers(self, peers: list[PeerInfo]):
         current_pubkeys = self.list_peers()
         log.debug('current peers: %s', current_pubkeys)
 
@@ -67,25 +64,50 @@ class WireGuard:
             if peer.pubkey == self.pubkey or peer.pubkey in current_pubkeys:
                 continue
 
-            log.info('adding peer: %s', peer.pubkey)
+            self.add_peer(peer)
 
-            if use_relay:
-                host = relay_host
-                port = relay_port
-            else:
-                host = peer.host
-                port = peer.port
-                # Datagram to create entry in NAT table
-                udp.send(b'', ('127.0.0.1', source_port), (host, port))
-                # Wait for UDP packet to be sent in both directions
-                time.sleep(2)
-            run(['wg', 'set', self.if_name, 'peer', peer.pubkey, 'endpoint', f'{host}:{port}', 'persistent-keepalive', '25', 'allowed-ips', f'{peer.vpn_addr4}/32, {peer.vpn_addr6}/128'])
-
+        # Remove local peers that are no longer known by the server
         active_pubkeys = {peer.pubkey for peer in peers}
         for pubkey in current_pubkeys:
             if pubkey not in active_pubkeys:
                 log.info('removing peer: %s', pubkey)
                 run(['wg', 'set', self.if_name, 'peer', pubkey, 'remove'])
+
+    def add_peer(self, peer: PeerInfo):
+        log.info('adding peer: %s', peer.pubkey)
+
+        # UDP hole punching
+        udp.send(b'', ('127.0.0.1', self.listen_port), (peer.host, peer.port))
+        # Wait for UDP packet to be sent in both directions
+        time.sleep(2)
+
+        # Add peer with low keepalive
+        endpoint = f'{peer.host}:{peer.port}'
+        allowed_ips = f'{peer.vpn_addr4}/32, {peer.vpn_addr6}/128'
+        run(['wg', 'set', self.if_name, 'peer', peer.pubkey, 'endpoint', endpoint, 'persistent-keepalive', '1', 'allowed-ips', allowed_ips])
+
+        # Monitor RX bytes. The other end has also set persistent-keepalive=1, so we should see our
+        # received bytes increase with 32 bytes every second
+        rx_bytes = self.rx_bytes()
+        time.sleep(10)
+        new_rx_bytes = self.rx_bytes()
+        if new_rx_bytes > rx_bytes + 32 * 5:
+            log.debug('p2p connection appears to be working')
+            # Keepalive can now be increased to 25 seconds
+            run(['wg', 'set', self.if_name, 'peer', peer.pubkey, 'persistent-keepalive', '25'])
+            return
+
+        # Even if the two ends of a peer to peer connection decide differently on whether the
+        # connection is working, they will still end up both using the same method, because
+        # WireGuard updates its endpoint when it receives data from a different source address.
+
+        log.debug('too little RX bytes, from %s to %s', rx_bytes, new_rx_bytes)
+        # Set endpoint to relay server, also increase keepalive
+        run(['wg', 'set', self.if_name, 'peer', peer.pubkey, 'endpoint', self.relay_endpoint, 'persistent-keepalive', '25'])
+
+
+    def rx_bytes(self) -> int:
+        return int(Path(f'/sys/class/net/{self.if_name}/statistics/rx_bytes').read_text(encoding='utf-8'))
 
     @staticmethod
     def gen_privkey():
@@ -97,14 +119,13 @@ class WireGuard:
 
 
 def main():
-    config = read_config()
+    config = json.loads(Path('client_config.json').read_text(encoding='utf-8'))
     logging.basicConfig()
     logging.getLogger().setLevel(config['log_level'])
 
-    use_relay = bool(int(input('use relay, 1 or 0? ')))
-
     privkey = WireGuard.gen_privkey()
     pubkey = WireGuard.gen_pubkey(privkey)
+    relay_endpoint = f'{config['server_host']}:{config['server_port']}'
 
     log.debug('wireguard public key: %s', pubkey)
 
@@ -119,7 +140,7 @@ def main():
         # Remember source port before closing, must be reused for WireGuard
         source_port = sock.getsockname()[1]
 
-    with WireGuard(config['interface'], privkey, pubkey, source_port, config['address4'], config['address6']) as wg:
+    with WireGuard(config['interface'], privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint) as wg:
         # Establish connection for management channel
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((config['server_host'], config['server_port']))
@@ -136,7 +157,7 @@ def main():
                 peer_list: PeerList = messages.unpack(data)
                 log.info('received %s peers from server', len(peer_list.peers))
                 log.debug("peer list: %s", peer_list)
-                wg.update_peers(peer_list.peers, config['server_host'], config['server_port'], use_relay, source_port)
+                wg.update_peers(peer_list.peers)
 
 
 if __name__ == '__main__':

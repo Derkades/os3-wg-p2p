@@ -6,17 +6,11 @@ import socket
 import time
 from dataclasses import dataclass
 from threading import Thread
-
+from pathlib import Path
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
 
 log = logging.getLogger('server')
-
-
-def read_config():
-    with open('server_config.json', encoding='utf-8') as config_file:
-        return json.load(config_file)
-
 
 @dataclass
 class Peer:
@@ -92,7 +86,6 @@ class Server:
         NETWORK_BY_ADDR[(hello.host, hello.port)] = net
         self.sock_to_peer[sock] = (net, new_peer)
 
-        time.sleep(1)  # wait for client to be ready to receive management data
         self.broadcast_peers(net.peers)
 
     def start(self, config):
@@ -173,7 +166,7 @@ class Relay:
 
 
 def main():
-    config = read_config()
+    config = json.loads(Path('client_config.json').read_text(encoding='utf-8'))
     logging.basicConfig()
     logging.getLogger().setLevel(config['log_level'])
 
