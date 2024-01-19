@@ -9,6 +9,7 @@ from threading import Thread
 from pathlib import Path
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
+from multiprocessing.pool import ThreadPool
 
 log = logging.getLogger('server')
 
@@ -32,6 +33,7 @@ class Network:
 NETWORK_BY_UUID: dict[str, Network] = {}
 NETWORK_BY_ADDR: dict[tuple[str, int], Network] = {}  # for relay only
 SOCKETS: set[socket.socket] = set()
+POOL = ThreadPool(32)
 
 
 class Server:
@@ -66,8 +68,9 @@ class Server:
         log.info('broadcast updated peer list to %s peers', len(peers))
         peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
         peer_list_bytes = messages.pack(peer_list)
-        for peer in peers:
+        def send(peer: Peer):
             self.send(peer.sock, peer_list_bytes)
+        POOL.map(send, peers)
 
     def handle_peer_hello(self, data, sock):
         hello: PeerHello = messages.unpack(data)
