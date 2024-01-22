@@ -7,6 +7,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
+from threading import Thread
 
 import messages
 import udp
@@ -15,14 +17,17 @@ from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
 log = logging.getLogger('client')
 
 
-def create_tempfile(content: bytes) -> str:
-    fd, temp_path = tempfile.mkstemp()
+def create_tempfile(content: bytes, suffix: Optional[str] = None) -> str:
+    fd, temp_path = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, 'wb') as temp_file:
         temp_file.write(content)
     return temp_path
 
 
-def run(command: list[str], check=True, input=None, capture_output=False) -> bytes:
+def run(command: list[str],
+        check: bool = True,
+        input: Optional[bytes] = None,
+        capture_output: bool = False) -> bytes:
     log.debug('running command: %s', ' '.join(command))
     result = subprocess.run(command, check=check, capture_output=capture_output, input=input)
     if capture_output:
@@ -31,27 +36,46 @@ def run(command: list[str], check=True, input=None, capture_output=False) -> byt
 
 @dataclass
 class WireGuard:
-    if_name: str
     privkey: str
     pubkey: str
     listen_port: int
     addr4: str
     addr6: str
     relay_endpoint: str
+    if_name: Optional[str] = None
+    use_nm = False
 
     def __enter__(self):
-        privkey_path = create_tempfile(self.privkey.encode())
-        run(['ip', 'link', 'del', self.if_name], check=False)
-        run(['ip', 'link', 'add', self.if_name, 'type', 'wireguard'])
-        run(['wg', 'set', self.if_name, 'private-key', privkey_path, 'listen-port', str(self.listen_port)])
-        run(['ip', 'address', 'add', self.addr4 + '/24', 'dev', self.if_name])
-        run(['ip', 'address', 'add', self.addr6 + '/64', 'dev', self.if_name])
-        run(['ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', self.if_name])
-        os.unlink(privkey_path)
+        if self.use_nm:
+            config = f'''
+            [Interface]
+            ListenPort = {self.listen_port}
+            PrivateKey = {self.privkey}
+            Address = {self.addr4}/24, {self.addr6}/64
+            MTU = 1380
+            '''
+            config_path = create_tempfile(config.encode(), suffix='.conf')
+            self.if_name = Path(config_path).name.split('.')[0]
+            run(['nmcli', 'connection', 'import', '--temporary', 'type', 'wireguard', 'file', config_path])
+            os.unlink(config_path)
+        else:
+            privkey_path = create_tempfile(self.privkey.encode())
+            self.if_name = Path(privkey_path).name.split('.')[0]  # convenient way to get random string
+            # run(['ip', 'link', 'del', self.if_name], check=False)
+            run(['ip', 'link', 'add', self.if_name, 'type', 'wireguard'])
+            run(['wg', 'set', self.if_name, 'private-key', privkey_path, 'listen-port', str(self.listen_port)])
+            run(['ip', 'address', 'add', self.addr4 + '/24', 'dev', self.if_name])
+            run(['ip', 'address', 'add', self.addr6 + '/64', 'dev', self.if_name])
+            run(['ip', 'link', 'set', 'mtu', '1380', 'up', 'dev', self.if_name])
+            os.unlink(privkey_path)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        run(['ip', 'link', 'del', self.if_name])
+        if self.use_nm:
+            run(['nmcli', 'connection', 'down', self.if_name])
+            run(['nmcli', 'connection', 'delete', self.if_name])
+        else:
+            run(['ip', 'link', 'del', self.if_name])
 
     def list_peers(self) -> list[str]:
         return run(['wg', 'show', self.if_name, 'peers'], capture_output=True).splitlines()
@@ -142,7 +166,7 @@ def main():
         # Remember source port before closing, must be reused for WireGuard
         source_port = sock.getsockname()[1]
 
-    with WireGuard(config['interface'], privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint) as wg:
+    with WireGuard(privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint) as wg:
         # Establish connection for management channel
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((config['server_host'], config['server_port']))
