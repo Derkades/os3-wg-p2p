@@ -64,7 +64,9 @@ class WireGuard:
             if peer.pubkey == self.pubkey or peer.pubkey in current_pubkeys:
                 continue
 
-            self.add_peer(peer)
+            # If multiple peers are added, they need to be added at the same time, because
+            # UDP hole punching and relay fallback are time-sensitive.
+            Thread(target=self.add_peer, args=(peer,)).start()
 
         # Remove local peers that are no longer known by the server
         active_pubkeys = {peer.pubkey for peer in peers}
