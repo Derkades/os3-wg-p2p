@@ -151,7 +151,7 @@ def main():
 
     privkey = WireGuard.gen_privkey()
     pubkey = WireGuard.gen_pubkey(privkey)
-    relay_endpoint = f'{config['server_host']}:{config['server_port']}'
+    relay_endpoint = f"{config['server_host']}:{config['server_port']}"
 
     log.debug('wireguard public key: %s', pubkey)
 
