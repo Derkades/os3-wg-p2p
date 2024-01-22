@@ -104,8 +104,6 @@ class WireGuard:
 
         # UDP hole punching
         udp.send(b'', ('127.0.0.1', self.listen_port), (peer.host, peer.port))
-        # Wait for UDP packet to be sent in both directions
-        time.sleep(2)
 
         # Add peer with low keepalive
         endpoint = f'{peer.host}:{peer.port}'
