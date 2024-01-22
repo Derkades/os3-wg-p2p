@@ -3,7 +3,10 @@ import json
 import struct
 from abc import ABC
 from dataclasses import asdict, dataclass
+from gzip import BadGzipFile
 from ipaddress import IPv4Address
+from json import JSONDecodeError
+from typing import Optional
 
 MAGIC = b'awesome peer to peer magic to distinguish packet as different from wiregurad traffic'
 
@@ -56,8 +59,11 @@ def pack(msg: Message):
     return gzip.compress(json.dumps({'type': type(msg).__name__, **asdict(msg)}).encode())
 
 
-def unpack(data):
-    obj = json.loads(gzip.decompress(data).decode())
+def unpack(data) -> Optional[Message]:
+    try:
+        obj = json.loads(gzip.decompress(data).decode())
+    except (BadGzipFile, JSONDecodeError):
+        return None
     type = obj['type']
     del obj['type']
     if type == 'PeerHello':

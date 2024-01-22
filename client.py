@@ -7,8 +7,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 from threading import Thread
+from typing import Optional
 
 import messages
 import udp
@@ -126,6 +126,7 @@ class WireGuard:
         # WireGuard updates its endpoint when it receives data from a different source address.
 
         log.debug('too little RX bytes, from %s to %s', rx_bytes, new_rx_bytes)
+        log.info('P2P connection to %s failed, falling back to relay server', peer.pubkey)
         # Set endpoint to relay server, also increase keepalive
         run(['wg', 'set', self.if_name, 'peer', peer.pubkey, 'endpoint', self.relay_endpoint, 'persistent-keepalive', '25'])
 

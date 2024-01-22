@@ -5,11 +5,12 @@ import select
 import socket
 import time
 from dataclasses import dataclass
-from threading import Thread
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
+from threading import Thread
+
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
-from multiprocessing.pool import ThreadPool
 
 log = logging.getLogger('server')
 
@@ -74,6 +75,10 @@ class Server:
 
     def handle_peer_hello(self, data, sock):
         hello: PeerHello = messages.unpack(data)
+        if not hello:
+            log.warning('ignoring invalid message from client')
+            return
+
         new_peer = Peer(sock, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
         log.debug('new peer: %s', new_peer)
 
