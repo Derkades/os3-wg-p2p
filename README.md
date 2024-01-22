@@ -22,7 +22,6 @@ Create the configuration file `client_config.json`:
     "uuid": "b20b3973-6dcd-43be-a097-e80126ae6532",
     "address4": "10.200.0.1",
     "address6": "fdf0:a1e8:32b1:200::1",
-    "interface": "wg5",
     "server_host": "localhost",
     "server_port": 3000,
     "log_level": "INFO"
