@@ -1,6 +1,6 @@
 # Peer to peer WireGuard
 
-Example of a VPN client and server that allows creating a peer to peer mesh network using WireGuard, without modifications to WireGuard itself. Uses UDP hole punching or a relay server. Supports IPv4 and IPv6 inside and outside the tunnel.
+Example of a VPN client and server that allows creating a peer to peer mesh network using WireGuard, without modifications to WireGuard itself. Uses UDP hole punching or a relay server. Supports IPv4 and IPv6 inside the tunnel.
 
 ## Server
 
