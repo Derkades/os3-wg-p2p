@@ -7,6 +7,7 @@ from threading import Thread
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerList
 from wg import get_wireguard, NMWGManager, WGManager
+import os
 
 log = logging.getLogger('client')
 
@@ -56,17 +57,13 @@ def main():
 
     mgmt_sock = socket(AF_INET, SOCK_STREAM)
 
-    wg = get_wireguard(privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint)
-    nm = isinstance(wg, NMWGManager)
+    if_name = 'wg_p2p_' + os.urandom(2).hex()
+    wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint)
     wg.create_interface()
 
     Thread(target=mgmt_thread, args=(mgmt_sock, config, pubkey, addr_resp.host, addr_resp.port, wg)).start()
 
     try:
-        if nm:
-            from gi.repository import GLib
-            loop = GLib.MainLoop()
-            Thread(target=loop.run).start()
         while True:
             time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
@@ -75,10 +72,6 @@ def main():
         mgmt_sock.close()
         log.debug('remove interface')
         wg.remove_interface()
-        if nm:
-            time.sleep(1)  # TODO use callback on remove_interface() instead of sleeping
-            log.debug('quit GLib loop')
-            loop.quit()
 
 
 if __name__ == '__main__':

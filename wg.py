@@ -13,19 +13,6 @@ import udp
 from abc import ABC, abstractmethod
 from messages import PeerInfo
 
-FORCE_DISABLE_NM = True
-
-try:
-    if FORCE_DISABLE_NM:
-        NM = None
-    else:
-        import gi
-        gi.require_version("NM", "1.0")
-        from gi.repository import NM, GLib  # type: ignore
-        print('Using NetworkManager')
-except (ImportError, ValueError):
-    print('NetworkManager not available, root access will be required.')
-    NM = None
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +33,7 @@ def run(command: list[str],
 
 @dataclass
 class WGManager(ABC):
+    if_name: str
     privkey: str
     pubkey: str
     listen_port: int
@@ -75,11 +63,7 @@ class WGManager(ABC):
         pass
 
     @abstractmethod
-    def update_peer_endpoint(self, pubkey: str, endpoint: str) -> None:
-        pass
-
-    @abstractmethod
-    def update_peer_keepalive(self, pubkey: str, keepalive: int) -> None:
+    def update_peer(self, pubkey: str, endpoint: str, keepalive: int) -> None:
         pass
 
     def update_peers(self, peers: list[PeerInfo]):
@@ -109,7 +93,7 @@ class WGManager(ABC):
 
         # Add peer with low keepalive
         endpoint = f'{peer.host}:{peer.port}'
-        allowed_ips = ['{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
+        allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
         self.add_peer(peer.pubkey, endpoint, 1, allowed_ips)
 
         # Monitor RX bytes. The other end has also set persistent-keepalive=1, so we should see our
@@ -120,8 +104,9 @@ class WGManager(ABC):
         if new_rx_bytes > rx_bytes + 32 * 5:
             log.debug('p2p connection appears to be working')
             # Keepalive can now be increased to 25 seconds
-            self.update_peer_keepalive(peer.pubkey, 25)
+            self.update_peer(peer.pubkey, endpoint, 25)
             return
+            # con = self.nm.get_connection_by_uuid(self.nm_uuid)
 
         # Even if the two ends of a peer to peer connection decide differently on whether the
         # connection is working, they will still end up both using the same method, because
@@ -130,12 +115,11 @@ class WGManager(ABC):
         log.debug('too little RX bytes, from %s to %s', rx_bytes, new_rx_bytes)
         log.info('P2P connection to %s failed, falling back to relay server', peer.pubkey)
         # Set endpoint to relay server, also increase keepalive
-        self.update_peer_endpoint(peer.pubkey, self.relay_endpoint)
-        self.update_peer_keepalive(peer.pubkey, 25)
+        self.update_peer(peer.pubkey, self.relay_endpoint, 25)
 
     def rx_bytes(self) -> int:
         path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
-        return path.read_text(encoding='utf-8')
+        return int(path.read_text(encoding='utf-8'))
 
     @staticmethod
     def gen_privkey():
@@ -145,17 +129,44 @@ class WGManager(ABC):
     def gen_pubkey(privkey: str):
         return run(['wg', 'pubkey'], stdin=privkey.encode(), capture_output=True)[:-1]
 
-
+# Examples for NetworkManager WireGuard PyGObject:
+# https://cgit.freedesktop.org/NetworkManager/NetworkManager/tree/examples/python/gi/nm-wg-set
+# https://github.com/eduvpn/python-eduvpn-client/blob/6412f143aaac0b96ae08f668845d40ec4b420eff/eduvpn/nm.py
 class NMWGManager(WGManager):
     nm_uuid: Optional[str] = None
+    nm: 'NM.Client'
+
+    def _get_connection(self):
+        return self.nm.get_connection_by_uuid(self.nm_uuid)
+
+    def _get_wireguard_setting(self):
+        con = self.get_connection()
+        for setting in con.get_settings():
+            if isinstance(setting, NM.SettingWireGuard):
+                return setting
+        return None
+
+    def _get_device(self):
+        for device in self.nm.get_all_devices():
+            if device.get_type_description() == "wireguard" \
+                and self.nm_uuid in {conn.get_uuid() for conn in device.get_available_connections()}:
+                return device
+        return None
 
     def create_interface(self):
+        self.glib_loop = GLib.MainLoop()
+        Thread(target=self.glib_loop.run).start()
+
         self.nm_uuid = str(uuid.uuid4())
+
+        GLib.idle_add(self._create_interface)
+
+    def _create_interface(self):
         s_con = NM.SettingConnection.new()
         s_con.set_property(NM.SETTING_CONNECTION_INTERFACE_NAME, 'VPN')
         s_con.set_property(NM.SETTING_CONNECTION_TYPE, 'wireguard')
         s_con.set_property(NM.SETTING_CONNECTION_UUID, self.nm_uuid)
-        s_con.set_property(NM.SETTING_CONNECTION_ID, self.nm_uuid[:6])
+        s_con.set_property(NM.SETTING_CONNECTION_ID, self.if_name)
 
         s_ip4 = NM.SettingIP4Config.new()
         s_ip4.set_property(NM.SETTING_IP_CONFIG_METHOD, 'manual')
@@ -169,63 +180,70 @@ class NMWGManager(WGManager):
         for s in (s_con, s_ip4, s_wg):
             profile.add_setting(s)
 
-        nm = NM.Client.new(None)
+        self.nm = NM.Client.new(None)
 
         def add_callback(nm2, result):
             log.debug('add_callback')
             nm2.add_connection_finish(result)
+            time.sleep(.5)
+            GLib.idle_add(self._activate_connection)
 
-        def add():
-            log.debug('add')
-            nm.add_connection_async(connection=profile, save_to_disk=False, callback=add_callback)
+        log.debug('add_async')
+        self.nm.add_connection_async(connection=profile, save_to_disk=False, callback=add_callback)
 
-        log.debug('idle_add')
-        GLib.idle_add(add)
+    def _activate_connection(self):
+        def activate_callback(a, res):
+            log.debug('activate_callback')
+            a.activate_connection_finish(res)
+
+        log.debug('activate_async')
+        self.nm.activate_connection_async(connection=self._get_connection(), callback=activate_callback)
 
     def remove_interface(self):
         def delete_callback(a, res):
             a.delete_finish(res)
 
-        def disconnect_callback(a, res, nm):
+        def disconnect_callback(a, res):
             a.disconnect_finish(res)
-            con = nm.get_connection_by_uuid(self.nm_uuid)
+            con = self._get_connection()
             con.delete_async(callback=delete_callback)
 
         def disconnect():
-            nm = NM.Client.new(None)
-            for device in nm.get_all_devices():
-                if device.get_type_description() == "wireguard" \
-                    and self.nm_uuid in {conn.get_uuid() for conn in device.get_available_connections()}:
-                    break
-            else:
-                log.warning('found no WireGuard device to remove')
-                return
-
-            device.disconnect_async(callback=disconnect_callback, user_data=nm)
+            device = self._get_device()
+            device.disconnect_async(callback=disconnect_callback)
 
         GLib.idle_add(disconnect)
+
+        # TODO use callback
+        time.sleep(1)
+        self.glib_loop.quit()
 
     def list_peers(self):
         return []  # TODO
 
     def add_peer(self, pubkey: str, endpoint: str, keepalive: int, allowed_ips: list[str]) -> None:
-        pass
+        peer = NM.WireGuardPeer.new()
+        peer.set_endpoint(endpoint, allow_invalid=False)
+        peer.set_public_key(pubkey, accept_invalid=False)
+        peer.set_persistent_keepalive(keepalive)
+        for ip in allowed_ips:
+            peer.append_allowed_ip(ip.strip(), accept_invalid=False)
 
     def remove_peer(self, pubkey: str) -> None:
-        pass
+        s_wg = self._get_wireguard_setting()
+        pp_peer, pp_idx = s_wg.get_peer_by_public_key(pubkey)
+        if pp_peer:
+            s_wg.remove_peer(pp_idx)
 
-    def update_peer_endpoint(self, pubkey: str, endpoint: str) -> None:
-        pass
-
-    def update_peer_keepalive(self, pubkey: str, keepalive: int) -> None:
-        pass
+    def update_peer(self, pubkey: str, endpoint: str, keepalive: int) -> None:
+        s_wg = self._get_wireguard_setting()
+        pp_peer, _pp_idx = s_wg.get_peer_by_public_key(pubkey)
+        pp_peer.set_endpoint(endpoint)
+        pp_peer.set_persistent_keepalive(keepalive)
 
 
 class WGToolsWGManager(WGManager):
-    if_name: Optional[str] = None
-
     def create_interface(self):
-        self.if_name = os.urandom(4).hex()
         privkey_path = create_tempfile(self.privkey.encode())
         run(['ip', 'link', 'add', self.if_name, 'type', 'wireguard'])
         run(['wg', 'set', self.if_name, 'private-key', privkey_path, 'listen-port', str(self.listen_port)])
@@ -250,15 +268,20 @@ class WGToolsWGManager(WGManager):
     def remove_peer(self, pubkey: str) -> None:
         run(['wg', 'set', self.if_name, 'peer', pubkey, 'remove'])
 
-    def update_peer_endpoint(self, pubkey: str, endpoint: str) -> None:
-        run(['wg', 'set', self.if_name, 'peer', pubkey, 'endpoint', endpoint])
-
-    def update_peer_keepalive(self, pubkey: str, keepalive: int) -> None:
-        run(['wg', 'set', self.if_name, 'peer', pubkey, 'persistent-keepalive', str(keepalive)])
+    def update_peer(self, pubkey: str, endpoint: str, keepalive: int) -> None:
+        run(['wg', 'set', self.if_name, 'peer', pubkey, 'endpoint', endpoint, 'persistent-keepalive', str(keepalive)])
 
 
-def get_wireguard(*args) -> WGManager:
-    if NM:
+def get_wireguard(use_nm, *args) -> WGManager:
+    if use_nm:
+        import gi
+        gi.require_version("NM", "1.0")
+        from gi.repository import NM as NM2, GLib as GLib2
+        global NM, GLib
+        NM = NM2
+        GLib = GLib2
         return NMWGManager(*args)
     else:
+        global loop
+        loop = None
         return WGToolsWGManager(*args)
