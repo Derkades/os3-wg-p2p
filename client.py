@@ -3,7 +3,7 @@ import logging
 from socket import socket, AF_INET, SOCK_DGRAM, SOCK_STREAM, SHUT_RDWR
 import time
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerList
 from wg import get_wireguard, NMWGManager, WGManager
@@ -59,9 +59,13 @@ def main():
 
     if_name = 'wg_p2p_' + os.urandom(2).hex()
     wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint)
-    wg.create_interface()
 
-    Thread(target=mgmt_thread, args=(mgmt_sock, config, pubkey, addr_resp.host, addr_resp.port, wg)).start()
+    def interface_up():
+        log.info('interface is up, connecting to management channel')
+        Thread(target=mgmt_thread, args=(mgmt_sock, config, pubkey, addr_resp.host, addr_resp.port, wg)).start()
+
+    log.info('creating WireGuard interface')
+    wg.create_interface(interface_up)
 
     try:
         while True:
@@ -71,7 +75,10 @@ def main():
         mgmt_sock.shutdown(SHUT_RDWR)
         mgmt_sock.close()
         log.debug('remove interface')
-        wg.remove_interface()
+        event = Event()
+        wg.remove_interface(event.set)
+        log.debug('waiting for remove_interface event')
+        event.wait()
 
 
 if __name__ == '__main__':
