@@ -85,12 +85,33 @@ class WGManager(ABC):
                 log.info('removing peer: %s', pubkey)
                 self.remove_peer(pubkey)
 
+    def _find_source_ip(self, dest_ip: str) -> str:
+        # There must be a better way...
+        output = run(['ip', 'route', 'get', dest_ip], capture_output=True)
+        dev = False
+        for part in output.split():
+            if dev:
+                iface = part.strip()
+                break
+            dev = part.strip() == 'dev'
+
+        output = run(['ip', 'addr', 'show', iface], capture_output=True)
+        inet = False
+        for part in output.split():
+            if inet:
+                return part.strip().split('/')[0]
+            inet = part.strip() == 'inet'
+
     def set_up_peer_connection(self, peer: PeerInfo):
         log.info('adding peer: %s', peer.pubkey)
 
         # UDP hole punching
         try:
-            udp.send(b'', ('127.0.0.1', self.listen_port), (peer.host, peer.port))
+            source_ip = self._find_source_ip(peer.host)
+            source = (source_ip, self.listen_port)
+            dest = (peer.host, peer.port)
+            log.debug('sending UDP source=%s dest=%s', source, dest)
+            udp.send(b'', source, dest)
         except PermissionError:
             log.warning('no permission to send raw udp for hole punching, are you root?')
         # Add peer with low keepalive
