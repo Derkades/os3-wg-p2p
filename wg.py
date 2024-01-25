@@ -235,22 +235,25 @@ class NMWGManager(WGManager):
             callback()
 
         def delete():
+            log.debug('delete connection')
             con = self._get_connection()
             con.delete_async(callback=delete_callback)
 
-        # def disconnect_callback(a, res):
-        #     log.debug('disconnect_finish')
-        #     a.disconnect_finish(res)
-        #     con = self._get_connection()
-        #     con.delete_async(callback=delete_callback)
+        def disconnect_callback(a, res):
+            log.debug('disconnect_finish')
+            a.disconnect_finish(res)
+            delete()
 
-        # def disconnect():
-        #     log.debug('disconnect_async')
-        #     device = self._get_device()
-        #     device.disconnect_async(callback=disconnect_callback)
+        def disconnect():
+            device = self._get_device()
+            if device:
+                log.debug('disconnect_async')
+                device.disconnect_async(callback=disconnect_callback)
+            else:
+                log.warning('device does not exist, already disconnected?')
+                delete()
 
-        # GLib.idle_add(disconnect)
-        GLib.idle_add(delete)
+        GLib.idle_add(disconnect)
 
     def list_peers(self):
         s_wg = self._get_wireguard_setting()
@@ -317,7 +320,7 @@ class NMWGManager(WGManager):
             log.debug('peers: %s', self.list_peers())
 
     def peer_rx(self, pubkey: str) -> int:
-        log.warning('cannot yet determine rx bytes using network manager')
+        log.warning('cannot yet determine rx bytes using network manager, always returning zero')
         return 0
 
 
@@ -372,6 +375,4 @@ def get_wireguard(use_nm, *args) -> WGManager:
         GLib = GLib2
         return NMWGManager(*args)
     else:
-        global loop
-        loop = None
         return WGToolsWGManager(*args)
