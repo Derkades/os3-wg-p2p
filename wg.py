@@ -66,6 +66,10 @@ class WGManager(ABC):
     def update_peer(self, pubkey: str, endpoint: str, keepalive: int) -> None:
         pass
 
+    @abstractmethod
+    def peer_rx(self, pubkey: str) -> int:
+        pass
+
     def update_peers(self, peers: list[PeerInfo]):
         current_pubkeys = self.list_peers()
         log.debug('current peers: %s', current_pubkeys)
@@ -121,32 +125,31 @@ class WGManager(ABC):
 
         # Monitor RX bytes. The other end has also set persistent-keepalive=1, so we should see our
         # received bytes increase with 32 bytes every second
-        rx_bytes = self.rx_bytes()
-        time.sleep(10)
-        new_rx_bytes = self.rx_bytes()
-        if new_rx_bytes > rx_bytes + 32 * 5:
-            log.debug('p2p connection appears to be working')
+        rx_bytes = self.peer_rx(peer.pubkey)
+        time.sleep(7)
+        new_rx_bytes = self.peer_rx(peer.pubkey)
+        log.debug('rx from %s to %s', rx_bytes, new_rx_bytes)
+        if new_rx_bytes > rx_bytes:
+            log.info('p2p connection appears to be working')
             # Keepalive can now be increased to 25 seconds
             self.update_peer(peer.pubkey, endpoint, 25)
             return
-            # con = self.nm.get_connection_by_uuid(self.nm_uuid)
 
         # Even if the two ends of a peer to peer connection decide differently on whether the
         # connection is working, they will still end up both using the same method, because
         # WireGuard updates its endpoint when it receives data from a different source address.
 
-        log.debug('too little RX bytes, from %s to %s', rx_bytes, new_rx_bytes)
-        log.info('P2P connection to %s failed, falling back to relay server', peer.pubkey)
+        log.info('p2p connection to %s failed, falling back to relay server', peer.pubkey)
         # Set endpoint to relay server, also increase keepalive
         self.update_peer(peer.pubkey, self.relay_endpoint, 25)
 
-    def rx_bytes(self) -> int:
-        try:
-            path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
-            return int(path.read_text(encoding='utf-8'))
-        except FileNotFoundError:
-            log.warning('cannot read rx_bytes')
-            return 0
+    # def rx_bytes(self) -> int:
+    #     try:
+    #         path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
+    #         return int(path.read_text(encoding='utf-8'))
+    #     except FileNotFoundError:
+    #         log.warning('cannot read rx_bytes')
+    #         return 0
 
     @staticmethod
     def gen_privkey():
@@ -313,6 +316,10 @@ class NMWGManager(WGManager):
             log.warning('peer %s does not exist', pubkey)
             log.debug('peers: %s', self.list_peers())
 
+    def peer_rx(self, pubkey: str) -> int:
+        log.warning('cannot yet determine rx bytes using network manager')
+        return 0
+
 
 class WGToolsWGManager(WGManager):
     def create_interface(self, callback):
@@ -344,6 +351,15 @@ class WGToolsWGManager(WGManager):
 
     def update_peer(self, pubkey: str, endpoint: str, keepalive: int) -> None:
         run(['wg', 'set', self.if_name, 'peer', pubkey, 'endpoint', endpoint, 'persistent-keepalive', str(keepalive)])
+
+    def peer_rx(self, pubkey: str) -> int:
+        output = run(['wg', 'show', self.if_name, 'transfer'], capture_output=True)
+        for line in output.splitlines():
+            cols = line.split()
+            if cols[0].strip() == pubkey:
+                return int(cols[1].strip())
+        log.warning('could not determine rx bytes for %s', pubkey)
+        return 0
 
 
 def get_wireguard(use_nm, *args) -> WGManager:
