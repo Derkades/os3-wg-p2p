@@ -89,8 +89,10 @@ class WGManager(ABC):
         log.info('adding peer: %s', peer.pubkey)
 
         # UDP hole punching
-        udp.send(b'', ('127.0.0.1', self.listen_port), (peer.host, peer.port))
-
+        try:
+            udp.send(b'', ('127.0.0.1', self.listen_port), (peer.host, peer.port))
+        except PermissionError:
+            log.warning('no permission to send raw udp for hole punching, are you root?')
         # Add peer with low keepalive
         endpoint = f'{peer.host}:{peer.port}'
         allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
@@ -118,8 +120,12 @@ class WGManager(ABC):
         self.update_peer(peer.pubkey, self.relay_endpoint, 25)
 
     def rx_bytes(self) -> int:
-        path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
-        return int(path.read_text(encoding='utf-8'))
+        try:
+            path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
+            return int(path.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            log.warning('cannot read rx_bytes')
+            return 0
 
     @staticmethod
     def gen_privkey():
@@ -129,9 +135,7 @@ class WGManager(ABC):
     def gen_pubkey(privkey: str):
         return run(['wg', 'pubkey'], stdin=privkey.encode(), capture_output=True)[:-1]
 
-# Examples for NetworkManager WireGuard PyGObject:
-# https://cgit.freedesktop.org/NetworkManager/NetworkManager/tree/examples/python/gi/nm-wg-set
-# https://github.com/eduvpn/python-eduvpn-client/blob/6412f143aaac0b96ae08f668845d40ec4b420eff/eduvpn/nm.py
+# Documentation: https://github.com/Derkades/os3-wg-p2p/issues/4#issuecomment-1909762430
 class NMWGManager(WGManager):
     nm_uuid: Optional[str] = None
     nm: Optional['NM.Client'] = None
@@ -148,11 +152,7 @@ class NMWGManager(WGManager):
         return None
 
     def _get_device(self):
-        for device in self.nm.get_all_devices():
-            if device.get_type_description() == "wireguard" \
-                and self.nm_uuid in {conn.get_uuid() for conn in device.get_available_connections()}:
-                return device
-        return None
+        return self.nm.get_device_by_iface(self.if_name)
 
     def create_interface(self, callback):
         self.glib_loop = GLib.MainLoop()
@@ -174,6 +174,7 @@ class NMWGManager(WGManager):
         s_ip4.add_address(NM.IPAddress(socket.AF_INET, self.addr4, 24))
 
         s_wg = NM.SettingWireGuard.new()
+        s_wg.set_property(NM.SETTING_WIREGUARD_LISTEN_PORT, self.listen_port)
         s_wg.set_property(NM.SETTING_WIREGUARD_PRIVATE_KEY, self.privkey)
         s_wg.set_property(NM.SETTING_WIREGUARD_MTU, self.mtu)
 
@@ -186,20 +187,21 @@ class NMWGManager(WGManager):
         def add_callback(nm2, result):
             log.debug('add_callback')
             nm2.add_connection_finish(result)
-            time.sleep(.5)
-            GLib.idle_add(lambda: self._activate_connection(callback))
+            callback()
+            # time.sleep(.5)
+            # GLib.idle_add(lambda: self._activate_connection(callback))
 
         log.debug('add_async')
         self.nm.add_connection_async(connection=profile, save_to_disk=False, callback=add_callback)
 
-    def _activate_connection(self, callback):
-        def activate_callback(a, res):
-            log.debug('activate_callback')
-            a.activate_connection_finish(res)
-            callback()
+    # def _activate_connection(self, callback):
+    #     def activate_callback(a, res):
+    #         log.debug('activate_callback')
+    #         a.activate_connection_finish(res)
+    #         callback()
 
-        log.debug('activate_async')
-        self.nm.activate_connection_async(connection=self._get_connection(), callback=activate_callback)
+    #     log.debug('activate_async')
+    #     self.nm.activate_connection_async(connection=self._get_connection(), callback=activate_callback)
 
     def remove_interface(self, callback):
         def delete_callback(a, res):
@@ -208,21 +210,52 @@ class NMWGManager(WGManager):
             self.glib_loop.quit()
             callback()
 
-        def disconnect_callback(a, res):
-            log.debug('disconnect_finish')
-            a.disconnect_finish(res)
+        def delete():
             con = self._get_connection()
             con.delete_async(callback=delete_callback)
 
-        def disconnect():
-            log.debug('disconnect_async')
-            device = self._get_device()
-            device.disconnect_async(callback=disconnect_callback)
+        # def disconnect_callback(a, res):
+        #     log.debug('disconnect_finish')
+        #     a.disconnect_finish(res)
+        #     con = self._get_connection()
+        #     con.delete_async(callback=delete_callback)
 
-        GLib.idle_add(disconnect)
+        # def disconnect():
+        #     log.debug('disconnect_async')
+        #     device = self._get_device()
+        #     device.disconnect_async(callback=disconnect_callback)
+
+        # GLib.idle_add(disconnect)
+        GLib.idle_add(delete)
 
     def list_peers(self):
-        return []  # TODO
+        s_wg = self._get_wireguard_setting()
+        return [s_wg.get_peer(i).get_public_key() for i in range(s_wg.get_peers_len())]
+
+    def update(self):
+        def reapply_callback(a, res):
+            log.debug('reapply_callback')
+            a.reapply_finish(res)
+            log.debug('peers after apply: %s', self.list_peers())
+
+        def reapply():
+            log.debug('reapply_async')
+            log.debug('peers before apply: %s', self.list_peers())
+            con = self._get_connection()
+            self._get_device().reapply_async(con, 0, 0, callback=reapply_callback)
+
+        def commit_callback(a, res):
+            log.debug('commit_callback')
+            a.commit_changes_finish(res)
+            reapply()
+
+        def commit():
+            log.debug('peers before commit_changes: %s', self.list_peers())
+            log.debug('commit_changes_async')
+            con = self._get_connection()
+            con.commit_changes_async(save_to_disk=False, callback=commit_callback)
+
+        GLib.idle_add(commit)
 
     def add_peer(self, pubkey: str, endpoint: str, keepalive: int, allowed_ips: list[str]) -> None:
         peer = NM.WireGuardPeer.new()
@@ -231,21 +264,33 @@ class NMWGManager(WGManager):
         peer.set_persistent_keepalive(keepalive)
         for ip in allowed_ips:
             peer.append_allowed_ip(ip.strip(), accept_invalid=False)
-        # TODO reload configuration
+
+        s_wg = self._get_wireguard_setting()
+        s_wg.append_peer(peer)
+        self.update()
 
     def remove_peer(self, pubkey: str) -> None:
         s_wg = self._get_wireguard_setting()
         pp_peer, pp_idx = s_wg.get_peer_by_public_key(pubkey)
         if pp_peer:
             s_wg.remove_peer(pp_idx)
-        # TODO reload configuration
+            self.update()
+        else:
+            log.warning('peer %s does not exist', pubkey)
+            log.debug('peers: %s', self.list_peers())
 
     def update_peer(self, pubkey: str, endpoint: str, keepalive: int) -> None:
         s_wg = self._get_wireguard_setting()
-        pp_peer, _pp_idx = s_wg.get_peer_by_public_key(pubkey)
-        pp_peer.set_endpoint(endpoint)
-        pp_peer.set_persistent_keepalive(keepalive)
-        # TODO reload configuration
+        pp_peer, pp_idx = s_wg.get_peer_by_public_key(pubkey)
+        if pp_peer:
+            peer = pp_peer.new_clone(True)
+            peer.set_endpoint(endpoint, allow_invalid=False)
+            peer.set_persistent_keepalive(keepalive)
+            s_wg.set_peer(peer, pp_idx)
+            self.update()
+        else:
+            log.warning('peer %s does not exist', pubkey)
+            log.debug('peers: %s', self.list_peers())
 
 
 class WGToolsWGManager(WGManager):
