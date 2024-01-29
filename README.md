@@ -2,6 +2,12 @@
 
 Example of a VPN client and server that allows creating a peer to peer mesh network using WireGuard, without modifications to WireGuard itself. Uses UDP hole punching or a relay server. Supports IPv4 and IPv6 inside the tunnel.
 
+## Requirements
+
+Install `wireguard-tools` and a recent version of Python 3. No Python dependencies are required.
+
+Additional requirements to use NetworkManager `python3-gi` (Debian) or `python3-gobject` (Fedora)
+
 ## Server
 
 Create the configuration file `server_config.json`:
