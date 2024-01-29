@@ -1,13 +1,14 @@
 import json
 import logging
-from socket import socket, AF_INET, SOCK_DGRAM, SOCK_STREAM, SHUT_RDWR
+import os
 import time
 from pathlib import Path
+from socket import AF_INET, SHUT_RDWR, SOCK_DGRAM, SOCK_STREAM, socket
 from threading import Event, Thread
+
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerList
-from wg import get_wireguard, NMWGManager, WGManager
-import os
+from wg import WGManager, get_wireguard
 
 log = logging.getLogger('client')
 

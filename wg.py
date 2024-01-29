@@ -1,18 +1,18 @@
-from dataclasses import dataclass
 import logging
 import os
-from pathlib import Path
 import socket
-import tempfile
-from threading import Thread
-import time
-from typing import Optional
 import subprocess
+import tempfile
+import time
 import uuid
-import udp
 from abc import ABC, abstractmethod
-from messages import PeerInfo
+from dataclasses import dataclass
+from pathlib import Path
+from threading import Thread
+from typing import Optional
 
+import udp
+from messages import PeerInfo
 
 log = logging.getLogger(__name__)
 
@@ -142,14 +142,6 @@ class WGManager(ABC):
         log.info('p2p connection to %s failed, falling back to relay server', peer.pubkey)
         # Set endpoint to relay server, also increase keepalive
         self.update_peer(peer.pubkey, self.relay_endpoint, 25)
-
-    # def rx_bytes(self) -> int:
-    #     try:
-    #         path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
-    #         return int(path.read_text(encoding='utf-8'))
-    #     except FileNotFoundError:
-    #         log.warning('cannot read rx_bytes')
-    #         return 0
 
     @staticmethod
     def gen_privkey():
@@ -320,8 +312,14 @@ class NMWGManager(WGManager):
             log.debug('peers: %s', self.list_peers())
 
     def peer_rx(self, pubkey: str) -> int:
-        log.warning('cannot yet determine rx bytes using network manager, always returning zero')
-        return 0
+        log.warning('cannot determine per-peer rx bytes using network manager')
+        log.warning('returning interface rx bytes, unreliable when multiple peers are active')
+        try:
+            path = Path('/sys/class/net') / self.if_name / 'statistics' / 'rx_bytes'
+            return int(path.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            log.warning('cannot read rx_bytes')
+            return 0
 
 
 class WGToolsWGManager(WGManager):
@@ -369,7 +367,8 @@ def get_wireguard(use_nm, *args) -> WGManager:
     if use_nm:
         import gi
         gi.require_version("NM", "1.0")
-        from gi.repository import NM as NM2, GLib as GLib2
+        from gi.repository import NM as NM2
+        from gi.repository import GLib as GLib2
         global NM, GLib
         NM = NM2
         GLib = GLib2
