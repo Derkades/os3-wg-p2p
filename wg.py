@@ -119,7 +119,7 @@ class WGManager(ABC):
         except PermissionError:
             log.warning('no permission to send raw udp for hole punching, are you root?')
         # Add peer with low keepalive
-        endpoint = f'{peer.host}:{peer.port}'
+        endpoint = f'{peer.addr4[0]}:{peer.addr4[1]}'  # TODO IPv6 assumed
         allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
         self.add_peer(peer.pubkey, endpoint, 1, allowed_ips)
 

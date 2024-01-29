@@ -4,7 +4,7 @@ import struct
 from abc import ABC
 from dataclasses import asdict, dataclass
 from gzip import BadGzipFile
-from ipaddress import IPv4Address
+from ipaddress import IPv4Address, IPv6Address
 from json import JSONDecodeError
 from typing import Optional
 
@@ -13,18 +13,18 @@ MAGIC = b'awesome peer to peer magic to distinguish packet as different from wir
 
 @dataclass
 class AddressResponse:
-    SIZE = 6
-    FORMAT = '!4sH'
-    host: str # IPv4 address (4 bytes)
+    SIZE = 18
+    FORMAT = '!16sH'
+    host: str # IPv6 address or IPv4-mapped IPv6 address (16 bytes)
     port: int # port number (2 bytes)
 
     def pack(self) -> bytes:
-        return struct.pack(self.FORMAT, IPv4Address(self.host).packed, self.port)
+        return struct.pack(self.FORMAT, IPv6Address(self.host).packed, self.port)
 
     @classmethod
     def unpack(cls, packed: bytes):
         host, port = struct.unpack(cls.FORMAT, packed)
-        return cls(str(IPv4Address(host)), port)
+        return cls(str(IPv6Address(host)), port)
 
 
 class Message(ABC):
@@ -36,18 +36,18 @@ class PeerHello(Message):
     uuid: str # uuid
     pubkey: str # wireguard pubkey
     vpn_addr4: str # IPv4 address inside the VPN
-    vpn_addr6: str # IPV6 address inside the VPN
-    host: str # for wireguard udp
-    port: str # for wireguard udp
+    vpn_addr6: str # IPv6 address inside the VPN
+    addr4: Optional[tuple[str, int]] # for wireguard udp
+    addr6: Optional[tuple[str, int]] # for wireguard udp
 
 
 @dataclass
 class PeerInfo:
-    host: str
-    port: int
-    pubkey: str
-    vpn_addr4: str
-    vpn_addr6: str
+    addr4: Optional[tuple[str, int]] # for wireguard udp
+    addr6: Optional[tuple[str, int]] # for wireguard udp
+    pubkey: str # wireguard public key
+    vpn_addr4: str # IPv4 address inside the VPN
+    vpn_addr6: str # IPv6 address inside the VPN
 
 
 @dataclass

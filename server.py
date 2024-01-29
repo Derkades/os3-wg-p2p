@@ -2,7 +2,7 @@ import json
 import logging
 import queue
 import select
-import socket
+from socket import IPPROTO_IPV6, IPV6_V6ONLY, SHUT_RD, SO_REUSEADDR, SOCK_STREAM, SOL_IP, SOL_SOCKET, socket, SOCK_DGRAM, AF_INET, AF_INET6
 import time
 from dataclasses import dataclass
 from multiprocessing.pool import ThreadPool
@@ -17,7 +17,7 @@ log = logging.getLogger('server')
 @dataclass
 class Peer:
     """Device (a WireGuard interface) in a network"""
-    sock: socket.socket
+    sock: socket
     wg_addr: tuple[str, int]
     pubkey: str
     vpn_addr4: str
@@ -33,21 +33,21 @@ class Network:
 
 NETWORK_BY_UUID: dict[str, Network] = {}
 NETWORK_BY_ADDR: dict[tuple[str, int], Network] = {}  # for relay only
-SOCKETS: set[socket.socket] = set()
+SOCKETS: set[socket] = set()
 POOL = ThreadPool(32)
 
 
 class Server:
-    inputs: list[socket.socket] = []
-    outputs: list[socket.socket] = []
-    queues: dict[socket.socket, queue.Queue] = {}
-    sock_to_peer: dict[socket.socket, tuple[Network, Peer]] = {}
+    inputs: list[socket] = []
+    outputs: list[socket] = []
+    queues: dict[socket, queue.Queue] = {}
+    sock_to_peer: dict[socket, tuple[Network, Peer]] = {}
 
-    def send(self, sock: socket.socket, data: bytes):
+    def send(self, sock: socket, data: bytes):
         self.queues[sock].put(data)
         self.outputs.append(sock)
 
-    def close(self, sock: socket.socket):
+    def close(self, sock: socket):
         log.debug('closing socket')
         self.inputs.remove(sock)
         if sock in self.outputs:
@@ -55,7 +55,7 @@ class Server:
         sock.close()
         self.remove_peer(sock)
 
-    def remove_peer(self, sock: socket.socket):
+    def remove_peer(self, sock: socket):
         if sock in self.sock_to_peer:
             net, peer = self.sock_to_peer[sock]
             log.info('removing disconnected peer: %s', peer)
@@ -79,7 +79,8 @@ class Server:
             log.warning('ignoring invalid message from client')
             return
 
-        new_peer = Peer(sock, (hello.host, hello.port), hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
+        # TODO IPv4 assumed
+        new_peer = Peer(sock, hello.addr4, hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
         log.debug('new peer: %s', new_peer)
 
         if hello.uuid in NETWORK_BY_UUID:
@@ -91,7 +92,7 @@ class Server:
             net = Network(hello.uuid, [new_peer])
             NETWORK_BY_UUID[hello.uuid] = net
 
-        NETWORK_BY_ADDR[(hello.host, hello.port)] = net
+        NETWORK_BY_ADDR[hello.addr4] = net
         self.sock_to_peer[sock] = (net, new_peer)
 
         self.broadcast_peers(net.peers)
@@ -99,9 +100,9 @@ class Server:
     def start(self, config):
         bind_addr = ('0.0.0.0', config['server_port'])
         log.info('listening for TCP on %s', bind_addr)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        with socket(AF_INET, SOCK_STREAM) as server:
             server.setblocking(0)
-            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
             server.bind(bind_addr)
             server.listen()
             SOCKETS.add(server)
@@ -141,11 +142,11 @@ class Server:
 
 class Relay:
     def start(self, config):
-        bind_addr = ('0.0.0.0', config['server_port'])
-        log.info('listening for UDP on %s', bind_addr)
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        # We bind to IPv6 only, but it runs in dual stack mode so it also accepts IPv4 connections.
+        with socket(AF_INET6, SOCK_DGRAM) as sock:
             SOCKETS.add(sock)
-            sock.bind(bind_addr)
+            sock.bind(('::', config['server_port']))
+            log.info('listening for UDP on %s', sock.getsockname())
             while True:
                 data, addr = sock.recvfrom(1024)
                 if data == b'':
@@ -191,7 +192,7 @@ def main():
         log.info('shutting down sockets')
         for sock in SOCKETS:
             try:
-                sock.shutdown(socket.SHUT_RD)
+                sock.shutdown(SHUT_RD)
             except OSError:
                 pass
             sock.close()
