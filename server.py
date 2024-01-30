@@ -67,7 +67,7 @@ class Server:
 
     def broadcast_peers(self, peers: list[Peer]):
         log.info('broadcast updated peer list to %s peers', len(peers))
-        peer_list = PeerList([PeerInfo(peer.wg_addr[0], peer.wg_addr[1], peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
+        peer_list = PeerList([PeerInfo(peer.wg_addr, None, peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
         peer_list_bytes = messages.pack(peer_list)
         def send(peer: Peer):
             self.send(peer.sock, peer_list_bytes)
