@@ -136,7 +136,7 @@ def main():
         listen_port = addr4.local_port
         ipv6 = False
     else:
-        # connect to IPv6-only hosts and dual stack hosts directly, IPv6-only hosts via relay
+        # connect to IPv6-only hosts, dual stack and IPv6-only hosts via relay
         listen_port = addr6.local_port
         ipv6 = True
     wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, listen_port, ipv6, config['address4'], config['address6'], relay_endpoint)
