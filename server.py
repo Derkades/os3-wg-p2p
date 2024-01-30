@@ -18,7 +18,8 @@ log = logging.getLogger('server')
 class Peer:
     """Device (a WireGuard interface) in a network"""
     sock: socket
-    wg_addr: tuple[str, int]
+    addr4: tuple[str, int]
+    addr6: tuple[str, int]
     pubkey: str
     vpn_addr4: str
     vpn_addr6: str
@@ -67,7 +68,7 @@ class Server:
 
     def broadcast_peers(self, peers: list[Peer]):
         log.info('broadcast updated peer list to %s peers', len(peers))
-        peer_list = PeerList([PeerInfo(peer.wg_addr, None, peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
+        peer_list = PeerList([PeerInfo(peer.addr4, peer.addr6, peer.pubkey, peer.vpn_addr4, peer.vpn_addr6) for peer in peers])
         peer_list_bytes = messages.pack(peer_list)
         def send(peer: Peer):
             self.send(peer.sock, peer_list_bytes)
@@ -79,8 +80,9 @@ class Server:
             log.warning('ignoring invalid message from client')
             return
 
-        # TODO IPv4 assumed
-        new_peer = Peer(sock, hello.addr4, hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
+        log.debug('received hello: %s', hello)
+
+        new_peer = Peer(sock, hello.addr4, hello.addr6, hello.pubkey, hello.vpn_addr4, hello.vpn_addr6)
         log.debug('new peer: %s', new_peer)
 
         if hello.uuid in NETWORK_BY_UUID:
@@ -93,18 +95,20 @@ class Server:
             NETWORK_BY_UUID[hello.uuid] = net
 
         NETWORK_BY_ADDR[hello.addr4] = net
+        NETWORK_BY_ADDR[hello.addr6] = net
         self.sock_to_peer[sock] = (net, new_peer)
 
         self.broadcast_peers(net.peers)
 
     def start(self, config):
-        bind_addr = ('0.0.0.0', config['server_port'])
-        log.info('listening for TCP on %s', bind_addr)
-        with socket(AF_INET, SOCK_STREAM) as server:
+        with socket(AF_INET6, SOCK_STREAM) as server:
             server.setblocking(0)
             server.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-            server.bind(bind_addr)
+            # Bind to IPv6 only
+            # Dual stack mode accepts IPv4 connections using IPv4-mapped IPv6 address
+            server.bind(('::', config['server_port']))
             server.listen()
+            log.info('management server listening on [%s]:%s', server.getsockname()[0], server.getsockname()[1])
             SOCKETS.add(server)
             self.inputs.append(server)
 
@@ -120,7 +124,6 @@ class Server:
                         continue
 
                     data = sock.recv(16384)
-                    log.debug('received data from client: %s', data)
                     if data:
                         self.handle_peer_hello(data, sock)
                     else:
@@ -142,11 +145,12 @@ class Server:
 
 class Relay:
     def start(self, config):
-        # We bind to IPv6 only, but it runs in dual stack mode so it also accepts IPv4 connections.
         with socket(AF_INET6, SOCK_DGRAM) as sock:
             SOCKETS.add(sock)
+            # Bind to IPv6 only
+            # Dual stack mode accepts IPv4 connections using IPv4-mapped IPv6 address
             sock.bind(('::', config['server_port']))
-            log.info('listening for UDP on %s', sock.getsockname())
+            log.info('relay server listening on [%s]:%s', sock.getsockname()[0], sock.getsockname()[1])
             while True:
                 data, addr = sock.recvfrom(1024)
                 if data == b'':
@@ -166,7 +170,8 @@ class Relay:
                     # traffic from WireGuard would go to a different relay depending
                     # on the desired actual peer.
                     for peer in net.peers:
-                        if addr != peer.wg_addr:
+                        # at least don't relay back to peer
+                        if addr != peer.addr4 and addr != peer.addr6:
                             log.debug('relay %s -> %s', addr, peer.wg_addr)
                             sock.sendto(data, peer.wg_addr)
                     continue

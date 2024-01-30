@@ -4,7 +4,7 @@ import struct
 from abc import ABC
 from dataclasses import asdict, dataclass
 from gzip import BadGzipFile
-from ipaddress import IPv4Address, IPv6Address
+from ipaddress import IPv6Address
 from json import JSONDecodeError
 from typing import Optional
 
@@ -22,7 +22,7 @@ class AddressResponse:
         return struct.pack(self.FORMAT, IPv6Address(self.host).packed, self.port)
 
     @classmethod
-    def unpack(cls, packed: bytes):
+    def unpack(cls, packed: bytes) -> 'AddressResponse':
         host, port = struct.unpack(cls.FORMAT, packed)
         return cls(str(IPv6Address(host)), port)
 
@@ -55,6 +55,9 @@ class PeerList(Message):
     peers: list[PeerInfo]
 
 
+# quick and dirty message packing: gzipped json
+
+
 def pack(msg: Message):
     return gzip.compress(json.dumps({'type': type(msg).__name__, **asdict(msg)}).encode())
 
@@ -67,6 +70,10 @@ def unpack(data) -> Optional[Message]:
     type = obj['type']
     del obj['type']
     if type == 'PeerHello':
+        # rewrite list to tuple
+        for name in ['addr4', 'addr6']:
+            if obj[name] is not None:
+                obj[name] = tuple(obj[name])
         return PeerHello(**obj)
     elif type == 'PeerList':
         return PeerList([PeerInfo(**peer) for peer in obj['peers']])

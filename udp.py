@@ -1,6 +1,9 @@
 import socket
 import struct
 from ipaddress import IPv4Address
+import logging
+
+log = logging.getLogger('udp')
 
 # TODO: IPv6
 # TODO: Run as helper program so main program doesn't need root access
@@ -29,6 +32,11 @@ from ipaddress import IPv4Address
 #  +--------+--------+--------+--------+
 
 def send(data, source_addr: tuple[str, int], dest_addr: tuple[str, int]):
+    if ':' in dest_addr[0]:
+        raise ValueError('IPv6 is not supported, cannot send to ' + dest_addr)
+
+    log.debug('sending UDP from %s to %s', source_addr, dest_addr)
+
     data_len = len(data)
     udp_length = 8 + data_len
     checksum = 0

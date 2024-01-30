@@ -109,17 +109,23 @@ class WGManager(ABC):
     def set_up_peer_connection(self, peer: PeerInfo):
         log.info('adding peer: %s', peer.pubkey)
 
+        # TODO IPv6 support
+
+        if not peer.addr4:
+            log.warning('skipping peer without IPv4 address: %s', peer.pubkey)
+            return
+
+        peer_addr = peer.addr4
+
         # UDP hole punching
         try:
-            source_ip = self._find_source_ip(peer.host)
+            source_ip = self._find_source_ip(peer_addr[0])
             source = (source_ip, self.listen_port)
-            dest = (peer.host, peer.port)
-            log.debug('sending UDP source=%s dest=%s', source, dest)
-            udp.send(b'', source, dest)
+            udp.send(b'', source, peer_addr)
         except PermissionError:
             log.warning('no permission to send raw udp for hole punching, are you root?')
         # Add peer with low keepalive
-        endpoint = f'{peer.addr4[0]}:{peer.addr4[1]}'  # TODO IPv6 assumed
+        endpoint = f'{peer_addr[0]}:{peer_addr[1]}'
         allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
         self.add_peer(peer.pubkey, endpoint, 1, allowed_ips)
 

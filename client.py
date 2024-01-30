@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from socket import AF_INET, SHUT_RDWR, SOCK_DGRAM, SOCK_STREAM, socket, getaddrinfo
+from socket import SHUT_RDWR, SOCK_DGRAM, SOCK_STREAM, socket, getaddrinfo
 from threading import Event, Thread
 import select
 from typing import Optional
@@ -20,22 +20,19 @@ log = logging.getLogger('client')
 
 @dataclass
 class SourceAddrInfo:
-    ext_addr: str
-    ext_port: int
+    ext_addr: tuple[str, int]
     local_port: int
 
 
-def mgmt_thread(mgmt_sock: socket, config, pubkey: str, addr4: SourceAddrInfo, addr6: SourceAddrInfo, wg: WGManager):
-    # Establish connection for management channel
-    mgmt_sock.connect((config['server_host'], config['server_port']))
-
+def mgmt_thread(mgmt_sock: socket, config, pubkey: str, addr4: Optional[SourceAddrInfo], addr6: Optional[SourceAddrInfo], wg: WGManager):
     # Send hello to server via management channel
     hello = PeerHello(config['uuid'],
                       pubkey,
-                      (addr4.ext_addr, addr4.ext_port),
-                      (addr6.ext_addr, addr6.ext_port),
                       config['address4'],
-                      config['address6'])
+                      config['address6'],
+                      addr4.ext_addr if addr4 else None,
+                      addr6.ext_addr if addr6 else None)
+    log.debug('sending hello: %s', hello)
     mgmt_sock.send(messages.pack(hello))
 
     while True:
@@ -79,7 +76,7 @@ def get_addr_info(server_host: str, server_port: int):
             try:
                 data = sock.recv(AddressResponse.SIZE)
                 resp = AddressResponse.unpack(data)
-                info = SourceAddrInfo(resp.host, resp.port, sock.getsockname()[1])
+                info = SourceAddrInfo((resp.host, resp.port), sock.getsockname()[1])
                 if IPv6Address(resp.host).ipv4_mapped:
                     addr4 = info
                     log.debug('received IPv4 mapped response: %s', addr4)
@@ -118,14 +115,23 @@ def main():
 
     addr4, addr6 = get_addr_info(config['server_host'], config['server_port'])
 
-    if not addr4:
-        log.error('received no AddressResponse over IPv4, this is required!')
+    log.debug('external address IPv4: %s', addr4)
+    log.debug('external address IPv6: %s', addr6)
+
+    addresses = getaddrinfo(config['server_host'], config['server_port'], type=SOCK_STREAM)
+    for s_family, s_type, _s_proto, _s_canonname, s_addr in addresses:
+        # Establish connection for management channel
+        mgmt_sock = socket(s_family, s_type)
+        mgmt_sock.connect(s_addr)
+        log.info('connected to server: [%s]:%s', s_addr[0], s_addr[1])
+        break
+    else:
+        log.error('cannot resolve server host: %s', config['server_host'])
         sys.exit(1)
 
-    mgmt_sock = socket(AF_INET, SOCK_STREAM)
-
     if_name = 'wg_p2p_' + os.urandom(2).hex()
-    source_port = addr4.local_port  # TODO IPv4 assumed
+    # either IPv4 OR IPv6, cannot do both without relay
+    source_port = addr4.local_port if addr4 else addr6.local_port
     wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint)
 
     def interface_up():
