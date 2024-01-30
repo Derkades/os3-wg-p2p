@@ -33,7 +33,8 @@ log = logging.getLogger('udp')
 
 def send(data, source_addr: tuple[str, int], dest_addr: tuple[str, int]):
     if ':' in dest_addr[0]:
-        raise ValueError('IPv6 is not supported, cannot send to ' + dest_addr)
+        log.error('IPv6 is not supported, cannot send to %s', dest_addr)
+        return
 
     log.debug('sending UDP from %s to %s', source_addr, dest_addr)
 

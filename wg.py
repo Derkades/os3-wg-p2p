@@ -37,6 +37,7 @@ class WGManager(ABC):
     privkey: str
     pubkey: str
     listen_port: int
+    ipv6: bool
     addr4: str
     addr6: str
     relay_endpoint: str
@@ -107,15 +108,21 @@ class WGManager(ABC):
             inet = part.strip() == 'inet'
 
     def set_up_peer_connection(self, peer: PeerInfo):
-        log.info('adding peer: %s', peer.pubkey)
+        peer_addr = None
+        if self.ipv6 and peer.addr6:
+            # can connect to IPv6-only host or dual stack host
+            peer_addr = peer.addr6
+        elif not self.ipv6 and peer.addr4:
+            peer_addr = peer.addr4
 
-        # TODO IPv6 support
+        allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
 
-        if not peer.addr4:
-            log.warning('skipping peer without IPv4 address: %s', peer.pubkey)
+        if not peer_addr:
+            log.info('peer %s uses different address family, must use relay', peer.pubkey)
+            self.add_peer(peer.pubkey, self.relay_endpoint, 25, allowed_ips)
             return
 
-        peer_addr = peer.addr4
+        log.info('trying p2p connection to peer: %s %s', peer.pubkey, peer_addr)
 
         # UDP hole punching
         try:
@@ -126,7 +133,7 @@ class WGManager(ABC):
             log.warning('no permission to send raw udp for hole punching, are you root?')
         # Add peer with low keepalive
         endpoint = f'{peer_addr[0]}:{peer_addr[1]}'
-        allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
+
         self.add_peer(peer.pubkey, endpoint, 1, allowed_ips)
 
         # Monitor RX bytes. The other end has also set persistent-keepalive=1, so we should see our

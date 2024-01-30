@@ -131,8 +131,15 @@ def main():
 
     if_name = 'wg_p2p_' + os.urandom(2).hex()
     # either IPv4 OR IPv6, cannot do both without relay
-    source_port = addr4.local_port if addr4 else addr6.local_port
-    wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, source_port, config['address4'], config['address6'], relay_endpoint)
+    if addr4:
+        # connect to IPv4-only hosts and dual stack hosts directly, IPv6-only hosts via relay
+        listen_port = addr4.local_port
+        ipv6 = False
+    else:
+        # connect to IPv6-only hosts and dual stack hosts directly, IPv6-only hosts via relay
+        listen_port = addr6.local_port
+        ipv6 = True
+    wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, listen_port, ipv6, config['address4'], config['address6'], relay_endpoint)
 
     def interface_up():
         log.info('interface is up, connecting to management channel')
