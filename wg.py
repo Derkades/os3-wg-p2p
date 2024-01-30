@@ -218,20 +218,9 @@ class NMWGManager(WGManager):
             log.debug('add_callback')
             nm2.add_connection_finish(result)
             callback()
-            # time.sleep(.5)
-            # GLib.idle_add(lambda: self._activate_connection(callback))
 
         log.debug('add_async')
         self.nm.add_connection_async(connection=profile, save_to_disk=False, callback=add_callback)
-
-    # def _activate_connection(self, callback):
-    #     def activate_callback(a, res):
-    #         log.debug('activate_callback')
-    #         a.activate_connection_finish(res)
-    #         callback()
-
-    #     log.debug('activate_async')
-    #     self.nm.activate_connection_async(connection=self._get_connection(), callback=activate_callback)
 
     def remove_interface(self, callback):
         def delete_callback(a, res):
