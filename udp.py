@@ -51,8 +51,6 @@ def send(data, source_addr: tuple[str, int], dest_addr: tuple[str, int]):
         sock.sendto(udp_header + data, dest_addr)
 
 
-# From https://github.com/houluy/UDP/blob/master/udp.py#L120
-# No license! Need to find different code with open source license.
 def _checksum_func(data):
     checksum = 0
     data_len = len(data)
