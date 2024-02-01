@@ -1,15 +1,15 @@
-from dataclasses import dataclass
-from ipaddress import IPv6Address
 import json
 import logging
 import os
-import time
-from pathlib import Path
-from socket import SHUT_RDWR, SOCK_DGRAM, SOCK_STREAM, socket, getaddrinfo
-from threading import Event, Thread
 import select
-from typing import Optional
 import sys
+import time
+from dataclasses import dataclass
+from ipaddress import IPv6Address
+from pathlib import Path
+from socket import SHUT_RDWR, SOCK_DGRAM, SOCK_STREAM, getaddrinfo, socket
+from threading import Event, Thread
+from typing import Optional
 
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerList

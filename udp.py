@@ -1,7 +1,7 @@
+import logging
 import socket
 import struct
 from ipaddress import IPv4Address
-import logging
 
 log = logging.getLogger('udp')
 

@@ -2,13 +2,14 @@ import json
 import logging
 import queue
 import select
-from socket import SHUT_RD, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket, SOCK_DGRAM, AF_INET6
 import time
 from dataclasses import dataclass
+from ipaddress import IPv6Address
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
+from socket import (AF_INET6, SHUT_RD, SO_REUSEADDR, SOCK_DGRAM, SOCK_STREAM,
+                    SOL_SOCKET, socket)
 from threading import Thread
-from ipaddress import IPv6Address
 
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
