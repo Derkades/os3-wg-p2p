@@ -41,7 +41,7 @@ def mgmt_thread(mgmt_sock: socket, config, pubkey: str, addr4: Optional[SourceAd
             break
 
         peer_list: PeerList = messages.unpack(data)
-        log.info('received %s peers from server', len(peer_list.peers))
+        log.debug('received %s peers from server', len(peer_list.peers))
         log.debug("peer list: %s", peer_list)
         wg.update_peers(peer_list.peers)
 
@@ -57,7 +57,6 @@ def get_addr_info(server_host: str, server_port: int):
     outputs = []
 
     for address in getaddrinfo(server_host, server_port, type=SOCK_DGRAM):
-        log.debug('Creating socket using addrinfo %s', address)
         s_family, s_type, _s_proto, _s_canonname, s_addr = address
         sock = socket(s_family, s_type)
         sock.setblocking(0)
@@ -69,20 +68,18 @@ def get_addr_info(server_host: str, server_port: int):
     addr6: Optional[SourceAddrInfo] = None
 
     while len(inputs) > 0:
-        log.debug('loop')
         readable, writable, exceptional = select.select(inputs, outputs, inputs, 2)
 
         for sock in readable:
             try:
                 data = sock.recv(AddressResponse.SIZE)
                 resp = AddressResponse.unpack(data)
-                info = SourceAddrInfo((resp.host, resp.port), sock.getsockname()[1])
-                if IPv6Address(resp.host).ipv4_mapped:
-                    addr4 = info
-                    log.debug('received IPv4 mapped response: %s', addr4)
+                local_port = sock.getsockname()[1]
+                ipv4_mapped = IPv6Address(resp.host).ipv4_mapped
+                if ipv4_mapped:
+                    addr4 = SourceAddrInfo((str(ipv4_mapped), resp.port), local_port)
                 else:
-                    addr6 = info
-                    log.debug('received IPv6 AddressResponse: %s', addr6)
+                    addr6 = SourceAddrInfo((resp.host, resp.port), local_port)
             except ConnectionRefusedError:
                 log.debug('refused from %s', sock)
 
@@ -90,12 +87,11 @@ def get_addr_info(server_host: str, server_port: int):
             inputs.remove(sock)
 
         for sock in writable:
-            log.debug('send magic')
+            log.debug('sending magic to %s', sock.getpeername())
             sock.send(MAGIC)
             outputs.remove(sock)
 
         for sock in exceptional:
-            log.debug('exceptional: %s', sock)
             sock.close()
             inputs.remove(sock)
 
@@ -113,17 +109,19 @@ def main():
 
     log.debug('wireguard public key: %s', pubkey)
 
+    log.info('retrieving address information')
+
     addr4, addr6 = get_addr_info(config['server_host'], config['server_port'])
 
-    log.debug('external address IPv4: %s', addr4)
-    log.debug('external address IPv6: %s', addr6)
+    log.info('address info IPv4: %s', addr4)
+    log.info('address info IPv6: %s', addr6)
 
     addresses = getaddrinfo(config['server_host'], config['server_port'], type=SOCK_STREAM)
     for s_family, s_type, _s_proto, _s_canonname, s_addr in addresses:
         # Establish connection for management channel
         mgmt_sock = socket(s_family, s_type)
         mgmt_sock.connect(s_addr)
-        log.info('connected to server: [%s]:%s', s_addr[0], s_addr[1])
+        log.info('connected to management server: [%s]:%s', s_addr[0], s_addr[1])
         break
     else:
         log.error('cannot resolve server host: %s', config['server_host'])
@@ -135,14 +133,17 @@ def main():
         # connect to IPv4-only hosts and dual stack hosts directly, IPv6-only hosts via relay
         listen_port = addr4.local_port
         ipv6 = False
-    else:
+    elif addr6:
         # connect to IPv6-only hosts, dual stack and IPv6-only hosts via relay
         listen_port = addr6.local_port
         ipv6 = True
+    else:
+        log.error('could not discover external address')
+        sys.exit(1)
+
     wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, listen_port, ipv6, config['address4'], config['address6'], relay_endpoint)
 
     def interface_up():
-        log.info('interface is up, connecting to management channel')
         Thread(target=mgmt_thread, args=(mgmt_sock, config, pubkey, addr4, addr6, wg)).start()
 
     log.info('creating WireGuard interface')
@@ -152,6 +153,7 @@ def main():
         while True:
             time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
+        log.info('exiting')
         log.debug('close socket')
         mgmt_sock.shutdown(SHUT_RDWR)
         mgmt_sock.close()

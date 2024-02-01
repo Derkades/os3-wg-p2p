@@ -79,14 +79,16 @@ class WGManager(ABC):
             if peer.pubkey == self.pubkey or peer.pubkey in current_pubkeys:
                 continue
 
+            log.info('adding peer: %s', peer.pubkey)
+
             # If multiple peers are added, they need to be added at the same time, because
             # UDP hole punching and relay fallback are time-sensitive.
             Thread(target=self.set_up_peer_connection, args=(peer,)).start()
 
         # Remove local peers that are no longer known by the server
-        active_pubkeys = {peer.pubkey for peer in peers}
+        server_pubkeys = {peer.pubkey for peer in peers}
         for pubkey in current_pubkeys:
-            if pubkey not in active_pubkeys:
+            if pubkey not in server_pubkeys:
                 log.info('removing peer: %s', pubkey)
                 self.remove_peer(pubkey)
 
@@ -106,6 +108,7 @@ class WGManager(ABC):
             if inet:
                 return part.strip().split('/')[0]
             inet = part.strip() == 'inet'
+        raise ValueError()
 
     def set_up_peer_connection(self, peer: PeerInfo):
         peer_addr = None

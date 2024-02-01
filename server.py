@@ -2,12 +2,13 @@ import json
 import logging
 import queue
 import select
-from socket import IPPROTO_IPV6, IPV6_V6ONLY, SHUT_RD, SO_REUSEADDR, SOCK_STREAM, SOL_IP, SOL_SOCKET, socket, SOCK_DGRAM, AF_INET, AF_INET6
+from socket import SHUT_RD, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket, SOCK_DGRAM, AF_INET6
 import time
 from dataclasses import dataclass
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from threading import Thread
+from ipaddress import IPv6Address
 
 import messages
 from messages import MAGIC, AddressResponse, PeerHello, PeerInfo, PeerList
@@ -94,8 +95,12 @@ class Server:
             net = Network(hello.uuid, [new_peer])
             NETWORK_BY_UUID[hello.uuid] = net
 
-        NETWORK_BY_ADDR[hello.addr4] = net
-        NETWORK_BY_ADDR[hello.addr6] = net
+        if hello.addr4:
+            # IPv4 needs to be added as IPv4-mapped IPv6 address
+            NETWORK_BY_ADDR[hello.addr4] = net
+        if hello.addr6:
+            NETWORK_BY_ADDR[hello.addr6] = net
+
         self.sock_to_peer[sock] = (net, new_peer)
 
         self.broadcast_peers(net.peers)
@@ -152,15 +157,22 @@ class Relay:
             sock.bind(('::', config['server_port']))
             log.info('relay server listening on [%s]:%s', sock.getsockname()[0], sock.getsockname()[1])
             while True:
-                data, addr = sock.recvfrom(1024)
+                data, s_addr = sock.recvfrom(1024)
+
                 if data == b'':
                     log.debug('udp socket is dead')
                     break
 
                 if data == MAGIC:
-                    log.info('sending address response to %s', addr)
-                    sock.sendto(AddressResponse(addr[0], addr[1]).pack(), addr)
+                    log.info('sending address response to %s', s_addr)
+                    sock.sendto(AddressResponse(*s_addr[:2]).pack(), s_addr)
                     continue
+
+                ipv4_mapped = IPv6Address(s_addr[0]).ipv4_mapped
+                if ipv4_mapped:
+                    addr = (str(ipv4_mapped), s_addr[1])
+                else:
+                    addr = s_addr[:2]
 
                 if addr in NETWORK_BY_ADDR:
                     net = NETWORK_BY_ADDR[addr]
@@ -172,15 +184,23 @@ class Relay:
                     for peer in net.peers:
                         # at least don't relay back to peer
                         if addr != peer.addr4 and addr != peer.addr6:
-                            log.debug('relay %s -> %s', addr, peer.wg_addr)
-                            sock.sendto(data, peer.wg_addr)
+
+                            if peer.addr6:
+                                # Use IPv6 if possible
+                                peer_addr = peer.addr6
+                            else:
+                                # Must translate IPv4 address to IPv4-mapped IPv6 address
+                                peer_addr = ('::ffff:' + peer.addr4[0], peer.addr4[1])
+
+                            log.debug('relay %s -> %s', addr, peer_addr)
+                            sock.sendto(data, peer_addr)
                     continue
 
                 log.warning('received unknown data from %s', addr)
 
 
 def main():
-    config = json.loads(Path('client_config.json').read_text(encoding='utf-8'))
+    config = json.loads(Path('server_config.json').read_text(encoding='utf-8'))
     logging.basicConfig()
     logging.getLogger().setLevel(config['log_level'])
 
