@@ -24,14 +24,14 @@ class SourceAddrInfo:
     local_port: int
 
 
-def mgmt_thread(mgmt_sock: socket, config, pubkey: str, addr4: Optional[SourceAddrInfo], addr6: Optional[SourceAddrInfo], wg: WGManager):
+def mgmt_thread(mgmt_sock: socket, config, pubkey: str, addr4: tuple[str, int], addr6: tuple[str, int], wg: WGManager):
     # Send hello to server via management channel
     hello = PeerHello(config['uuid'],
                       pubkey,
                       config['address4'],
                       config['address6'],
-                      addr4.ext_addr if addr4 else None,
-                      addr6.ext_addr if addr6 else None)
+                      addr4,
+                      addr6)
     log.debug('sending hello: %s', hello)
     mgmt_sock.send(messages.pack(hello))
 
@@ -111,10 +111,10 @@ def main():
 
     log.info('retrieving address information')
 
-    addr4, addr6 = get_addr_info(config['server_host'], config['server_port'])
+    addrinf4, addrinf6 = get_addr_info(config['server_host'], config['server_port'])
 
-    log.info('address info IPv4: %s', addr4)
-    log.info('address info IPv6: %s', addr6)
+    log.info('address info IPv4: %s', addrinf4)
+    log.info('address info IPv6: %s', addrinf6)
 
     addresses = getaddrinfo(config['server_host'], config['server_port'], type=SOCK_STREAM)
     for s_family, s_type, _s_proto, _s_canonname, s_addr in addresses:
@@ -128,23 +128,38 @@ def main():
         sys.exit(1)
 
     if_name = 'wg_p2p_' + os.urandom(2).hex()
-    # either IPv4 OR IPv6, cannot do both without relay
-    if addr4:
-        # connect to IPv4-only hosts and dual stack hosts directly, IPv6-only hosts via relay
-        listen_port = addr4.local_port
-        ipv6 = False
-    elif addr6:
-        # connect to IPv6-only hosts, dual stack and IPv6-only hosts via relay
-        listen_port = addr6.local_port
-        ipv6 = True
+
+    if addrinf4:
+        log.debug('IPv4 is supported')
+        extaddr4 = addrinf4.ext_addr
+        listen_port = addrinf4.local_port
+        if addrinf6:
+            log.debug('network is dual stack')
+            if addrinf6.local_port == addrinf6.ext_addr[1]:
+                log.debug('IPv6 does not use NAT, use IPv6 with IPv4 port')
+                extaddr6 = (addrinf6.ext_addr[0], addrinf4.ext_addr[1])
+            else:
+                log.debug('IPv6 uses NAT, cannot use IPv6 (IPv4-only)')
+                extaddr6 = None
+        else:
+            log.debug('IPv6 is not available')
+            extaddr6 = None
+    elif addrinf6:
+        log.debug('network is IPv6-only')
+        listen_port = addrinf6.local_port
+        extaddr4 = None
+        extaddr6 = addrinf6.ext_addr
     else:
         log.error('could not discover external address')
         sys.exit(1)
 
-    wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey, listen_port, ipv6, config['address4'], config['address6'], relay_endpoint)
+    wg = get_wireguard(config['network_manager'], if_name, privkey, pubkey,
+                       listen_port, extaddr4 is not None, extaddr6 is not None,
+                       config['address4'], config['address6'],
+                       relay_endpoint)
 
     def interface_up():
-        Thread(target=mgmt_thread, args=(mgmt_sock, config, pubkey, addr4, addr6, wg)).start()
+        Thread(target=mgmt_thread, args=(mgmt_sock, config, pubkey, extaddr4, extaddr6, wg)).start()
 
     log.info('creating WireGuard interface')
     wg.create_interface(interface_up)

@@ -62,19 +62,22 @@ def pack(msg: Message):
     return gzip.compress(json.dumps({'type': type(msg).__name__, **asdict(msg)}).encode())
 
 
+def list_to_tuple(obj):
+    for name in obj.keys():
+        if isinstance(obj[name], list):
+            obj[name] = tuple(obj[name])
+    return obj
+
+
 def unpack(data) -> Optional[Message]:
     try:
         obj = json.loads(gzip.decompress(data).decode())
     except (BadGzipFile, JSONDecodeError):
         return None
-    type = obj['type']
+    mtype = obj['type']
     del obj['type']
-    if type == 'PeerHello':
-        # rewrite list to tuple
-        for name in ['addr4', 'addr6']:
-            if obj[name] is not None:
-                obj[name] = tuple(obj[name])
-        return PeerHello(**obj)
-    elif type == 'PeerList':
-        return PeerList([PeerInfo(**peer) for peer in obj['peers']])
-    raise ValueError(type)
+    if mtype == 'PeerHello':
+        return PeerHello(**list_to_tuple(obj))
+    elif mtype == 'PeerList':
+        return PeerList([PeerInfo(**list_to_tuple(peer)) for peer in obj['peers']])
+    raise ValueError(mtype)

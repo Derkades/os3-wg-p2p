@@ -14,6 +14,7 @@ from typing import Optional
 import udp
 from messages import PeerInfo
 
+
 log = logging.getLogger(__name__)
 
 def create_tempfile(content: bytes, suffix: Optional[str] = None) -> str:
@@ -37,6 +38,7 @@ class WGManager(ABC):
     privkey: str
     pubkey: str
     listen_port: int
+    ipv4: bool
     ipv6: bool
     addr4: str
     addr6: str
@@ -113,10 +115,8 @@ class WGManager(ABC):
     def set_up_peer_connection(self, peer: PeerInfo):
         peer_addr = None
         if self.ipv6 and peer.addr6:
-            # can only connect to IPv6-only host directly
             peer_addr = peer.addr6
-        elif not self.ipv6 and peer.addr4:
-            # can connect to IPv4-only or dual stack host
+        elif self.ipv4 and peer.addr4:
             peer_addr = peer.addr4
 
         allowed_ips = [f'{peer.vpn_addr4}/32', f'{peer.vpn_addr6}/128']
